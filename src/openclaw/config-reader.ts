@@ -68,3 +68,16 @@ export async function readAuthProfiles(agentId?: string, profilesPath?: string):
 export function getProviderConfig(provider: string, config: OpenClawConfig): OpenClawProviderConfig | undefined {
   return config.models?.providers?.[provider];
 }
+
+export function lookupContextWindowFromConfig(
+  modelKey: string,
+  config: OpenClawConfig,
+): number | undefined {
+  const [provider, ...rest] = modelKey.split("/");
+  const modelId = rest.join("/");
+  if (!provider || !modelId) return undefined;
+  const providerConfig = config.models?.providers?.[provider];
+  if (!providerConfig?.models) return undefined;
+  const model = providerConfig.models.find(m => m.id === modelId);
+  return model?.contextWindow;
+}

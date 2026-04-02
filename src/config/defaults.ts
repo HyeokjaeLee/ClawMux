@@ -12,6 +12,11 @@ export const DEFAULT_CONFIG: Required<ClawMuxConfig> = {
       MEDIUM: "",
       HEAVY: "",
     },
+    contextWindows: {},
+    classifier: {
+      model: undefined,
+      timeoutMs: 3000,
+    },
     scoring: {
       weights: {},
       boundaries: {
@@ -43,6 +48,11 @@ export function applyDefaults(partial: ClawMuxConfig): Required<ClawMuxConfig> {
         LIGHT: partial.routing.models.LIGHT ?? defaults.routing.models.LIGHT,
         MEDIUM: partial.routing.models.MEDIUM ?? defaults.routing.models.MEDIUM,
         HEAVY: partial.routing.models.HEAVY ?? defaults.routing.models.HEAVY,
+      },
+      contextWindows: { ...defaults.routing.contextWindows, ...partial.routing.contextWindows },
+      classifier: {
+        model: partial.routing.classifier?.model ?? defaults.routing.classifier!.model,
+        timeoutMs: partial.routing.classifier?.timeoutMs ?? defaults.routing.classifier!.timeoutMs,
       },
       scoring: {
         weights: { ...ds.weights, ...ps?.weights },

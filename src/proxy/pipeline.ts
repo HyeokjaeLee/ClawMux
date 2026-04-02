@@ -2,6 +2,7 @@ import type { ClawMuxConfig } from "../config/types.ts";
 import type { OpenClawConfig, AuthProfile } from "../openclaw/types.ts";
 import type { AuthInfo } from "../adapters/types.ts";
 import type { CompressionMiddleware } from "./compression-integration.ts";
+import type { PiAiCatalog } from "../openclaw/model-limits.ts";
 import { getAdapter, registerAdapter } from "../adapters/registry.ts";
 import { AnthropicAdapter } from "../adapters/anthropic.ts";
 import "../adapters/openai-completions.ts";
@@ -9,12 +10,13 @@ import "../adapters/openai-responses.ts";
 import "../adapters/google.ts";
 import "../adapters/ollama.ts";
 import "../adapters/bedrock.ts";
-import type { Message } from "../routing/types.ts";
-import { scoreComplexity } from "../routing/scorer.ts";
-import { routeRequest } from "../routing/tier-mapper.ts";
+import type { Message, RoutingDecision } from "../routing/types.ts";
+import { classifyComplexity } from "../routing/llm-classifier.ts";
 import { resolveApiKey } from "../openclaw/auth-resolver.ts";
 import { translateResponse } from "../adapters/stream-transformer.ts";
 import { setRouteHandler } from "./router.ts";
+import { createCompressionMiddleware } from "./compression-integration.ts";
+import { resolveCompressionContextWindow, resolveContextWindow, DEFAULT_CONTEXT_TOKENS } from "../openclaw/model-limits.ts";
 
 registerAdapter(new AnthropicAdapter());
 
@@ -82,8 +84,22 @@ export async function handleApiRequest(
   }
 
   const messages = effectiveParsed.messages as unknown as ReadonlyArray<Message>;
-  const scoringResult = scoreComplexity(messages, config.routing.scoring);
-  const decision = routeRequest(scoringResult, config.routing);
+  const classifierModel = config.routing.classifier?.model ?? config.routing.models.LIGHT;
+  const classifierDeps = {
+    openclawConfig,
+    authProfiles,
+    classifierModel,
+    timeoutMs: config.routing.classifier?.timeoutMs ?? 3000,
+    routingModels: config.routing.models,
+    scoringConfig: config.routing.scoring,
+  };
+  const classification = await classifyComplexity(messages, classifierDeps);
+  const decision: RoutingDecision = {
+    tier: classification.tier,
+    model: config.routing.models[classification.tier],
+    confidence: classification.confidence,
+    overrideReason: classification.reasoning,
+  };
 
   const lookup = findProviderForModel(decision.model, openclawConfig);
   let providerName: string;
@@ -135,7 +151,7 @@ export async function handleApiRequest(
   }
 
   console.log(
-    `[clawmux] ${decision.tier} → ${decision.model} | score=${scoringResult.score.toFixed(3)} conf=${scoringResult.confidence.toFixed(2)} | ${scoringResult.textExcerpt}`,
+    `[clawmux] ${decision.tier} → ${decision.model} | conf=${classification.confidence.toFixed(2)}${classification.reasoning ? ` | ${classification.reasoning}` : ""}`,
   );
 
   if (compressionMiddleware && upstreamResponse.ok) {
@@ -150,6 +166,39 @@ export async function handleApiRequest(
     status: upstreamResponse.status,
     statusText: upstreamResponse.statusText,
     headers: upstreamResponse.headers,
+  });
+}
+
+export function createResolvedCompressionMiddleware(
+  config: ClawMuxConfig,
+  openclawConfig: OpenClawConfig,
+  piAiCatalog: PiAiCatalog | undefined,
+  statsTracker?: import("./stats.ts").StatsTracker,
+): CompressionMiddleware {
+  const contextWindows = config.routing.contextWindows ?? {};
+  const resolvedContextWindow = resolveCompressionContextWindow(
+    config.routing.models,
+    contextWindows,
+    openclawConfig,
+    piAiCatalog,
+  );
+
+  const tiers = ["LIGHT", "MEDIUM", "HEAVY"] as const;
+  for (const tier of tiers) {
+    const modelKey = config.routing.models[tier];
+    if (modelKey) {
+      const window = resolveContextWindow(modelKey, contextWindows, openclawConfig, piAiCatalog);
+      console.log(`[clawmux] ${tier} → ${modelKey} contextWindow=${window}`);
+    }
+  }
+  console.log(`[clawmux] Compression contextWindow=${resolvedContextWindow} (minimum across tiers)`);
+
+  return createCompressionMiddleware({
+    threshold: config.compression.threshold,
+    targetRatio: config.compression.targetRatio ?? 0.6,
+    compressionModel: config.compression.model,
+    resolvedContextWindow,
+    statsTracker,
   });
 }
 

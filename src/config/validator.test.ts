@@ -163,4 +163,89 @@ describe("validateConfig", () => {
       expect(result.errors.some((e) => e.includes("compression.targetRatio") && e.includes("0.2") && e.includes("0.9"))).toBe(true);
     }
   });
+
+  describe("routing.contextWindows validation", () => {
+    it("accepts valid contextWindows", () => {
+      const result = validateConfig({
+        ...VALID_CONFIG,
+        routing: {
+          ...VALID_CONFIG.routing,
+          contextWindows: { "zai/glm-5": 204800, "openai/gpt-5.4": 400000 },
+        },
+      });
+      expect(result.valid).toBe(true);
+    });
+
+    it("accepts config without contextWindows (optional)", () => {
+      const result = validateConfig(VALID_CONFIG);
+      expect(result.valid).toBe(true);
+    });
+
+    it("accepts empty contextWindows", () => {
+      const result = validateConfig({
+        ...VALID_CONFIG,
+        routing: {
+          ...VALID_CONFIG.routing,
+          contextWindows: {},
+        },
+      });
+      expect(result.valid).toBe(true);
+    });
+
+    it("rejects non-positive contextWindow values", () => {
+      const result = validateConfig({
+        ...VALID_CONFIG,
+        routing: {
+          ...VALID_CONFIG.routing,
+          contextWindows: { "zai/glm-5": 0 },
+        },
+      });
+      expect(result.valid).toBe(false);
+      if (!result.valid) {
+        expect(result.errors.some((e) => e.includes("routing.contextWindows") && e.includes("positive number"))).toBe(true);
+      }
+    });
+
+    it("rejects negative contextWindow values", () => {
+      const result = validateConfig({
+        ...VALID_CONFIG,
+        routing: {
+          ...VALID_CONFIG.routing,
+          contextWindows: { "openai/gpt-5.4": -100 },
+        },
+      });
+      expect(result.valid).toBe(false);
+      if (!result.valid) {
+        expect(result.errors.some((e) => e.includes("routing.contextWindows") && e.includes("positive number"))).toBe(true);
+      }
+    });
+
+    it("rejects non-number contextWindow values", () => {
+      const result = validateConfig({
+        ...VALID_CONFIG,
+        routing: {
+          ...VALID_CONFIG.routing,
+          contextWindows: { "zai/glm-5": "large" as unknown as number },
+        },
+      });
+      expect(result.valid).toBe(false);
+      if (!result.valid) {
+        expect(result.errors.some((e) => e.includes("routing.contextWindows") && e.includes("positive number"))).toBe(true);
+      }
+    });
+
+    it("merges contextWindows with defaults", () => {
+      const result = validateConfig({
+        ...VALID_CONFIG,
+        routing: {
+          ...VALID_CONFIG.routing,
+          contextWindows: { "zai/glm-5": 204800 },
+        },
+      });
+      expect(result.valid).toBe(true);
+      if (result.valid) {
+        expect(result.config.routing.contextWindows).toEqual({ "zai/glm-5": 204800 });
+      }
+    });
+  });
 });

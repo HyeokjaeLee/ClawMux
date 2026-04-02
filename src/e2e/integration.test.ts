@@ -62,6 +62,10 @@ function makeClawMuxConfig(): ClawMuxConfig {
         MEDIUM: "anthropic/claude-sonnet-4-20250514",
         HEAVY: "anthropic/claude-opus-4-20250514",
       },
+      classifier: {
+        model: "nonexistent-provider/classifier-model",
+        timeoutMs: 500,
+      },
       scoring: {
         boundaries: { lightMedium: 0.0, mediumHeavy: 0.35 },
         confidenceThreshold: 0.5,

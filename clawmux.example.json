@@ -15,6 +15,16 @@
       "HEAVY": "anthropic/claude-opus-4-20250514",
       "_comment_models": "Model IDs in 'provider/model' format for each routing tier. Do NOT use provider names starting with 'clawmux-' — this causes infinite loops."
     },
+    "contextWindows": {
+      "_comment_contextWindows": "Optional per-model context window overrides (in tokens). Keys use 'provider/model' format.",
+      "zai/glm-5": 204800,
+      "openai/gpt-5.4": 400000
+    },
+    "_comment_classifier": "LLM-based request classifier. Each request is sent to this model for complexity classification. Defaults to routing.models.LIGHT if not specified.",
+    "_example_classifier": {
+      "model": "anthropic/claude-3-5-haiku-20241022",
+      "timeoutMs": 3000
+    },
     "scoring": {
       "boundaries": {
         "lightMedium": 0.0,

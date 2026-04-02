@@ -63,6 +63,10 @@ function makeConfig(overrides?: Partial<ClawMuxConfig["routing"]>): ClawMuxConfi
         MEDIUM: "anthropic/claude-sonnet-4-20250514",
         HEAVY: "anthropic/claude-opus-4-20250514",
       },
+      classifier: {
+        model: "nonexistent-provider/classifier-model",
+        timeoutMs: 500,
+      },
       ...overrides,
     },
   };

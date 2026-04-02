@@ -1,3 +1,5 @@
+// Legacy keyword-based scorer — used as emergency fallback when LLM classifier is unavailable.
+// The primary classification method is now LLM-based (see llm-classifier.ts).
 import type { Message, ScoringConfig, ScoringResult } from "./types.ts";
 import {
   AGENTIC_KEYWORDS,

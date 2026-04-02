@@ -11,7 +11,7 @@ export interface CompressionMiddlewareConfig {
   threshold: number;
   targetRatio: number;
   compressionModel: string;
-  contextWindow?: number;
+  resolvedContextWindow: number;
   maxSessions?: number;
   statsTracker?: StatsTracker;
 }
@@ -117,7 +117,7 @@ function createMakeApiCall(
 export function createCompressionMiddleware(
   config: CompressionMiddlewareConfig,
 ): CompressionMiddleware {
-  const contextWindow = config.contextWindow ?? 200_000;
+  const contextWindow = config.resolvedContextWindow;
   const sessionStore = createSessionStore(config.maxSessions ?? 500);
   const worker = createCompressionWorker({
     threshold: config.threshold,

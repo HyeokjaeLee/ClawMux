@@ -55,7 +55,7 @@ const BASE_CONFIG: CompressionMiddlewareConfig = {
   threshold: 0.75,
   targetRatio: 0.6,
   compressionModel: "test-compression-model",
-  contextWindow: 1000,
+  resolvedContextWindow: 1000,
   maxSessions: 10,
 };
 

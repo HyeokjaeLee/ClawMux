@@ -186,6 +186,10 @@ beforeAll(() => {
         MEDIUM: "test-anthropic/claude-sonnet-4-20250514",
         HEAVY: "test-openai/gpt-5.4",
       },
+      classifier: {
+        model: "nonexistent-provider/classifier-model",
+        timeoutMs: 500,
+      },
       scoring: {
         boundaries: { lightMedium: 0.0, mediumHeavy: 0.35 },
         confidenceThreshold: 0.5,

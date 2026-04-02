@@ -91,6 +91,33 @@ export function validateConfig(raw: unknown): ValidationResultUnion {
   if (medium) checkProviderModelFormat(errors, "routing.models.MEDIUM", medium);
   if (heavy) checkProviderModelFormat(errors, "routing.models.HEAVY", heavy);
 
+  if (routing.contextWindows !== undefined) {
+    if (!isObject(routing.contextWindows)) {
+      errors.push("routing.contextWindows: must be an object");
+    } else {
+      for (const [key, value] of Object.entries(routing.contextWindows)) {
+        if (typeof key !== "string") {
+          errors.push(`routing.contextWindows: keys must be strings`);
+        }
+        if (typeof value !== "number" || value <= 0) {
+          errors.push(`routing.contextWindows["${key}"]: must be a positive number, got ${String(value)}`);
+        }
+      }
+    }
+  }
+
+  const classifier = routing.classifier !== undefined && isObject(routing.classifier) ? routing.classifier : null;
+  if (classifier !== null) {
+    if (classifier.model !== undefined) {
+      if (requireString(errors, "routing.classifier.model", classifier.model)) {
+        checkProviderModelFormat(errors, "routing.classifier.model", classifier.model as string);
+      }
+    }
+    if (classifier.timeoutMs !== undefined) {
+      checkOptionalNumberRange(errors, "routing.classifier.timeoutMs", classifier.timeoutMs, 500, 10000);
+    }
+  }
+
   const scoring = routing.scoring !== undefined && isObject(routing.scoring) ? routing.scoring : null;
   if (scoring !== null && scoring.confidenceThreshold !== undefined) {
     checkOptionalNumberRange(errors, "routing.scoring.confidenceThreshold", scoring.confidenceThreshold, 0.0, 1.0);
