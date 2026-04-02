@@ -47,29 +47,29 @@ describe("mapScoreToTier", () => {
 
 describe("selectModel", () => {
   const models: Record<Tier, string> = {
-    LIGHT: "claude-3-haiku-20240307",
-    MEDIUM: "claude-3-5-sonnet-20241022",
-    HEAVY: "claude-3-opus-20240229",
+    LIGHT: "anthropic/claude-3-haiku-20240307",
+    MEDIUM: "anthropic/claude-3-5-sonnet-20241022",
+    HEAVY: "anthropic/claude-3-opus-20240229",
   };
 
   it("returns correct model for LIGHT", () => {
-    expect(selectModel("LIGHT", models)).toBe("claude-3-haiku-20240307");
+    expect(selectModel("LIGHT", models)).toBe("anthropic/claude-3-haiku-20240307");
   });
 
   it("returns correct model for MEDIUM", () => {
-    expect(selectModel("MEDIUM", models)).toBe("claude-3-5-sonnet-20241022");
+    expect(selectModel("MEDIUM", models)).toBe("anthropic/claude-3-5-sonnet-20241022");
   });
 
   it("returns correct model for HEAVY", () => {
-    expect(selectModel("HEAVY", models)).toBe("claude-3-opus-20240229");
+    expect(selectModel("HEAVY", models)).toBe("anthropic/claude-3-opus-20240229");
   });
 });
 
 describe("routeRequest", () => {
   const models: Record<Tier, string> = {
-    LIGHT: "claude-3-haiku-20240307",
-    MEDIUM: "claude-3-5-sonnet-20241022",
-    HEAVY: "claude-3-opus-20240229",
+    LIGHT: "anthropic/claude-3-haiku-20240307",
+    MEDIUM: "anthropic/claude-3-5-sonnet-20241022",
+    HEAVY: "anthropic/claude-3-opus-20240229",
   };
 
   it("routes simple high-confidence request to LIGHT", () => {
@@ -82,7 +82,7 @@ describe("routeRequest", () => {
 
     const decision = routeRequest(scoringResult, { models });
     expect(decision.tier).toBe("LIGHT");
-    expect(decision.model).toBe("claude-3-haiku-20240307");
+    expect(decision.model).toBe("anthropic/claude-3-haiku-20240307");
     expect(decision.confidence).toBe(0.95);
     expect(decision.overrideReason).toBeUndefined();
   });
@@ -97,7 +97,7 @@ describe("routeRequest", () => {
 
     const decision = routeRequest(scoringResult, { models });
     expect(decision.tier).toBe("HEAVY");
-    expect(decision.model).toBe("claude-3-opus-20240229");
+    expect(decision.model).toBe("anthropic/claude-3-opus-20240229");
   });
 
   it("low confidence fallback to MEDIUM with override reason", () => {
@@ -110,7 +110,7 @@ describe("routeRequest", () => {
 
     const decision = routeRequest(scoringResult, { models });
     expect(decision.tier).toBe("MEDIUM");
-    expect(decision.model).toBe("claude-3-5-sonnet-20241022");
+    expect(decision.model).toBe("anthropic/claude-3-5-sonnet-20241022");
     expect(decision.overrideReason).toBe("Low confidence fallback");
   });
 

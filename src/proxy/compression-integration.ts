@@ -71,6 +71,10 @@ function createMakeApiCall(
   baseUrl: string,
   auth: AuthInfo,
 ): MakeApiCall {
+  const actualModelId = compressionModel.includes("/")
+    ? compressionModel.split("/").slice(1).join("/")
+    : compressionModel;
+
   return async (
     model: string,
     messages: Array<{ role: string; content: string }>,
@@ -90,7 +94,7 @@ function createMakeApiCall(
 
     const upstream = adapter.buildUpstreamRequest(
       syntheticParsed,
-      compressionModel,
+      actualModelId,
       baseUrl,
       auth,
     );

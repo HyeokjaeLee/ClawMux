@@ -13,6 +13,7 @@ import type { Message } from "../routing/types.ts";
 import { scoreComplexity } from "../routing/scorer.ts";
 import { routeRequest } from "../routing/tier-mapper.ts";
 import { resolveApiKey } from "../openclaw/auth-resolver.ts";
+import { translateResponse } from "../adapters/stream-transformer.ts";
 import { setRouteHandler } from "./router.ts";
 
 registerAdapter(new AnthropicAdapter());
@@ -20,29 +21,27 @@ registerAdapter(new AnthropicAdapter());
 interface ProviderLookupResult {
   providerName: string;
   baseUrl: string;
+  apiType: string;
 }
 
 function findProviderForModel(
-  modelId: string,
+  modelString: string,
   openclawConfig: OpenClawConfig,
 ): ProviderLookupResult | undefined {
   const providers = openclawConfig.models?.providers;
   if (!providers) return undefined;
 
-  for (const [providerName, providerConfig] of Object.entries(providers)) {
-    const models = providerConfig.models;
-    if (!models) continue;
-    for (const model of models) {
-      if (model.id === modelId) {
-        return {
-          providerName,
-          baseUrl: providerConfig.baseUrl ?? "",
-        };
-      }
-    }
-  }
+  const [providerName, modelId] = modelString.split("/", 2);
+  if (!providerName || !modelId) return undefined;
 
-  return undefined;
+  const providerConfig = providers[providerName];
+  if (!providerConfig) return undefined;
+
+  return {
+    providerName,
+    baseUrl: providerConfig.baseUrl ?? "",
+    apiType: providerConfig.api ?? "",
+  };
 }
 
 function jsonErrorResponse(message: string, status: number): Response {
@@ -89,14 +88,17 @@ export async function handleApiRequest(
   const lookup = findProviderForModel(decision.model, openclawConfig);
   let providerName: string;
   let baseUrl: string;
+  let targetApiType: string;
 
   if (lookup) {
     providerName = lookup.providerName;
     baseUrl = lookup.baseUrl;
+    targetApiType = lookup.apiType;
   } else {
     const reqUrl = new URL(req.url);
     baseUrl = `${reqUrl.protocol}//${reqUrl.host}`;
     providerName = apiType.split("-")[0];
+    targetApiType = apiType;
   }
 
   const auth = resolveApiKey(providerName, openclawConfig, authProfiles);
@@ -113,7 +115,12 @@ export async function handleApiRequest(
     headerValue: auth.headerValue,
   };
 
-  const upstream = adapter.buildUpstreamRequest(effectiveParsed, decision.model, baseUrl, authInfo);
+  const actualModelId = decision.model.split("/").slice(1).join("/");
+
+  const isCrossProvider = targetApiType !== "" && targetApiType !== apiType;
+  const targetAdapter = isCrossProvider ? getAdapter(targetApiType) : undefined;
+  const requestAdapter = targetAdapter ?? adapter;
+  const upstream = requestAdapter.buildUpstreamRequest(effectiveParsed, actualModelId, baseUrl, authInfo);
 
   let upstreamResponse: Response;
   try {
@@ -133,6 +140,10 @@ export async function handleApiRequest(
 
   if (compressionMiddleware && upstreamResponse.ok) {
     compressionMiddleware.afterResponse(parsed, adapter, baseUrl, authInfo);
+  }
+
+  if (targetAdapter && upstreamResponse.ok) {
+    return translateResponse(targetAdapter, adapter, upstreamResponse, effectiveParsed.stream);
   }
 
   return new Response(upstreamResponse.body, {

@@ -3,17 +3,17 @@
   "compression": {
     "threshold": 0.75,
     "_comment_threshold": "Token ratio (0.1–0.95) that triggers context compression.",
-    "model": "claude-3-5-haiku-20241022",
-    "_comment_model": "Model ID used for the compression summarisation call.",
+    "model": "anthropic/claude-3-5-haiku-20241022",
+    "_comment_model": "Model ID in 'provider/model' format used for the compression summarisation call.",
     "targetRatio": 0.6,
     "_comment_targetRatio": "Desired compression ratio (0.2–0.9). 0.6 = compress to 60% of original."
   },
   "routing": {
     "models": {
-      "LIGHT": "claude-3-5-haiku-20241022",
-      "MEDIUM": "claude-sonnet-4-20250514",
-      "HEAVY": "claude-opus-4-20250514",
-      "_comment_models": "Model IDs for each routing tier. Do NOT use values containing 'clawmux' — this causes infinite loops."
+      "LIGHT": "anthropic/claude-3-5-haiku-20241022",
+      "MEDIUM": "anthropic/claude-sonnet-4-20250514",
+      "HEAVY": "anthropic/claude-opus-4-20250514",
+      "_comment_models": "Model IDs in 'provider/model' format for each routing tier. Do NOT use provider names starting with 'clawmux-' — this causes infinite loops."
     },
     "scoring": {
       "boundaries": {

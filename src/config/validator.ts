@@ -40,8 +40,13 @@ function checkRequiredString(errors: string[], errorPath: string, obj: unknown, 
   return value;
 }
 
-function checkSelfReference(errors: string[], model: string) {
-  if (model.toLowerCase().includes("clawmux")) {
+function checkProviderModelFormat(errors: string[], path: string, model: string) {
+  if (!model.includes("/")) {
+    errors.push(`${path} must be in 'provider/model' format (e.g., 'anthropic/claude-sonnet-4-20250514')`);
+    return;
+  }
+  const providerName = model.split("/", 2)[0];
+  if (providerName.toLowerCase().startsWith("clawmux-")) {
     errors.push(`Self-referencing model detected: ${model}. This would cause an infinite routing loop.`);
   }
 }
@@ -67,8 +72,8 @@ export function validateConfig(raw: unknown): ValidationResultUnion {
 
   if (compression.model === undefined || compression.model === "") {
     errors.push("compression.model: is required");
-  } else {
-    requireString(errors, "compression.model", compression.model);
+  } else if (requireString(errors, "compression.model", compression.model)) {
+    checkProviderModelFormat(errors, "compression.model", compression.model as string);
   }
 
   if (compression.targetRatio !== undefined) {
@@ -82,9 +87,9 @@ export function validateConfig(raw: unknown): ValidationResultUnion {
   const medium = checkRequiredString(errors, "routing.models.MEDIUM", models, "MEDIUM");
   const heavy = checkRequiredString(errors, "routing.models.HEAVY", models, "HEAVY");
 
-  if (light) checkSelfReference(errors, light);
-  if (medium) checkSelfReference(errors, medium);
-  if (heavy) checkSelfReference(errors, heavy);
+  if (light) checkProviderModelFormat(errors, "routing.models.LIGHT", light);
+  if (medium) checkProviderModelFormat(errors, "routing.models.MEDIUM", medium);
+  if (heavy) checkProviderModelFormat(errors, "routing.models.HEAVY", heavy);
 
   const scoring = routing.scoring !== undefined && isObject(routing.scoring) ? routing.scoring : null;
   if (scoring !== null && scoring.confidenceThreshold !== undefined) {

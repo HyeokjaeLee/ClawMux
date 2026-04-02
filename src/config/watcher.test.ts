@@ -6,12 +6,12 @@ import { createConfigWatcher } from "./watcher.ts";
 import type { ClawMuxConfig } from "./types.ts";
 
 const VALID_CONFIG: ClawMuxConfig = {
-  compression: { threshold: 0.75, model: "claude-3-5-haiku-20241022" },
+  compression: { threshold: 0.75, model: "anthropic/claude-3-5-haiku-20241022" },
   routing: {
     models: {
-      LIGHT: "claude-3-5-haiku-20241022",
-      MEDIUM: "claude-sonnet-4-20250514",
-      HEAVY: "claude-opus-4-20250514",
+      LIGHT: "anthropic/claude-3-5-haiku-20241022",
+      MEDIUM: "anthropic/claude-sonnet-4-20250514",
+      HEAVY: "anthropic/claude-opus-4-20250514",
     },
   },
 };

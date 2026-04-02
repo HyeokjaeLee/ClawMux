@@ -49,15 +49,15 @@ Copy `clawmux.example.json` to `clawmux.json` and adjust as needed:
 {
   "compression": {
     "threshold": 0.75,       // trigger compression at 75% of context window
-    "model": "claude-3-5-haiku-20241022",  // model used for summarization
+    "model": "anthropic/claude-3-5-haiku-20241022",  // model used for summarization (provider/model format)
     "targetRatio": 0.6       // compress to 60% of original token count
   },
   "routing": {
     "models": {
-      "LIGHT": "claude-3-5-haiku-20241022",
-      "MEDIUM": "claude-sonnet-4-20250514",
-      "HEAVY": "claude-opus-4-20250514"
-      // Do NOT use model IDs containing "clawmux" — causes infinite loops
+      "LIGHT": "anthropic/claude-3-5-haiku-20241022",
+      "MEDIUM": "anthropic/claude-sonnet-4-20250514",
+      "HEAVY": "anthropic/claude-opus-4-20250514"
+      // Model IDs use 'provider/model' format. Do NOT use provider names starting with "clawmux-" — causes infinite loops
     },
     "scoring": {
       "boundaries": {
@@ -75,6 +75,26 @@ Copy `clawmux.example.json` to `clawmux.json` and adjust as needed:
 ```
 
 Config is watched for changes. Edit `clawmux.json` while the proxy is running and it reloads automatically.
+
+### Cross-Provider Routing
+
+Mix models from different providers by tier. ClawMux automatically translates request and response formats between providers:
+
+```jsonc
+{
+  "routing": {
+    "models": {
+      "LIGHT": "zai/glm-5",                          // ZAI (openai-completions)
+      "MEDIUM": "anthropic/claude-sonnet-4-20250514",  // Anthropic (anthropic-messages)
+      "HEAVY": "openai/gpt-5.4"                       // OpenAI (openai-completions)
+    }
+  }
+}
+```
+
+All three providers must be configured in your `openclaw.json`. ClawMux handles format translation transparently — a request arriving in Anthropic format gets translated to OpenAI format when routed to GPT, and the response is translated back to Anthropic format before returning to OpenClaw.
+
+Supported translation pairs: Anthropic ↔ OpenAI ↔ Google ↔ Ollama ↔ Bedrock (all combinations).
 
 ## Supported Providers
 
@@ -94,12 +114,14 @@ Use `clawmux-anthropic`, `clawmux-openai`, `clawmux-openai-responses`, `clawmux-
 ## How It Works
 
 ```
-OpenClaw → ClawMux Proxy (localhost:3456) → Upstream Provider
+OpenClaw → ClawMux Proxy (localhost:3456) → Upstream Provider(s)
               │
               ├── 1. Score complexity (14 dimensions, <1ms)
               ├── 2. Select tier → LIGHT/MEDIUM/HEAVY
               ├── 3. Compress context if threshold exceeded
-              └── 4. Forward to upstream with correct model
+              ├── 4. Translate request format if cross-provider
+              ├── 5. Forward to upstream with correct model
+              └── 6. Translate response back to original format
 ```
 
 **Routing tiers** map to model IDs you configure. The scorer evaluates message length, code presence, reasoning depth, multi-step instructions, and other signals to pick the cheapest model that can handle the request.

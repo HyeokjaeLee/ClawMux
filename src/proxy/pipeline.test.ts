@@ -56,12 +56,12 @@ afterAll(() => {
 
 function makeConfig(overrides?: Partial<ClawMuxConfig["routing"]>): ClawMuxConfig {
   return {
-    compression: { threshold: 0.8, model: "claude-3-5-haiku-20241022" },
+    compression: { threshold: 0.8, model: "anthropic/claude-3-5-haiku-20241022" },
     routing: {
       models: {
-        LIGHT: "claude-3-5-haiku-20241022",
-        MEDIUM: "claude-sonnet-4-20250514",
-        HEAVY: "claude-opus-4-20250514",
+        LIGHT: "anthropic/claude-3-5-haiku-20241022",
+        MEDIUM: "anthropic/claude-sonnet-4-20250514",
+        HEAVY: "anthropic/claude-opus-4-20250514",
       },
       ...overrides,
     },
@@ -140,9 +140,9 @@ describe("handleApiRequest", () => {
   it("routes an OpenAI request correctly", async () => {
     const config = makeConfig({
       models: {
-        LIGHT: "gpt-4o-mini",
-        MEDIUM: "gpt-4o",
-        HEAVY: "gpt-4o",
+        LIGHT: "openai/gpt-4o-mini",
+        MEDIUM: "openai/gpt-4o",
+        HEAVY: "openai/gpt-4o",
       },
     });
     const openclawConfig = makeOpenClawConfig(`http://localhost:${mockPort}`);
@@ -173,9 +173,9 @@ describe("handleApiRequest", () => {
   it("routes trivial message to LIGHT model", async () => {
     const config = makeConfig({
       models: {
-        LIGHT: "claude-3-5-haiku-20241022",
-        MEDIUM: "claude-sonnet-4-20250514",
-        HEAVY: "claude-opus-4-20250514",
+        LIGHT: "anthropic/claude-3-5-haiku-20241022",
+        MEDIUM: "anthropic/claude-sonnet-4-20250514",
+        HEAVY: "anthropic/claude-opus-4-20250514",
       },
       scoring: {
         boundaries: { lightMedium: 0.0, mediumHeavy: 0.35 },
@@ -210,9 +210,9 @@ describe("handleApiRequest", () => {
   it("routes complex message to HEAVY model", async () => {
     const config = makeConfig({
       models: {
-        LIGHT: "claude-3-5-haiku-20241022",
-        MEDIUM: "claude-sonnet-4-20250514",
-        HEAVY: "claude-opus-4-20250514",
+        LIGHT: "anthropic/claude-3-5-haiku-20241022",
+        MEDIUM: "anthropic/claude-sonnet-4-20250514",
+        HEAVY: "anthropic/claude-opus-4-20250514",
       },
       scoring: {
         boundaries: { lightMedium: -0.1, mediumHeavy: 0.1 },

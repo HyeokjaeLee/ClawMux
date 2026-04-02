@@ -53,14 +53,14 @@ function makeClawMuxConfig(): ClawMuxConfig {
   return {
     compression: {
       threshold: 0.75,
-      model: "claude-3-5-haiku-20241022",
+      model: "anthropic/claude-3-5-haiku-20241022",
       targetRatio: 0.6,
     },
     routing: {
       models: {
-        LIGHT: "claude-3-5-haiku-20241022",
-        MEDIUM: "claude-sonnet-4-20250514",
-        HEAVY: "claude-opus-4-20250514",
+        LIGHT: "anthropic/claude-3-5-haiku-20241022",
+        MEDIUM: "anthropic/claude-sonnet-4-20250514",
+        HEAVY: "anthropic/claude-opus-4-20250514",
       },
       scoring: {
         boundaries: { lightMedium: 0.0, mediumHeavy: 0.35 },
@@ -323,7 +323,11 @@ describe("OpenAI routing", () => {
     const sentModel = lastUpstreamRequest!.body?.model as string;
     expect(typeof sentModel).toBe("string");
     expect(sentModel).not.toBe("gpt-4o");
-    expect(lastUpstreamRequest!.headers["authorization"]).toContain("Bearer");
+
+    const hasAuth =
+      lastUpstreamRequest!.headers["authorization"]?.includes("Bearer") ||
+      typeof lastUpstreamRequest!.headers["x-api-key"] === "string";
+    expect(hasAuth).toBe(true);
   });
 
   test("complex message routes to HEAVY tier", async () => {

@@ -2,12 +2,12 @@ import { describe, expect, it } from "bun:test";
 import { validateConfig } from "./validator.ts";
 
 const VALID_CONFIG = {
-  compression: { threshold: 0.75, model: "claude-3-5-haiku-20241022" },
+  compression: { threshold: 0.75, model: "anthropic/claude-3-5-haiku-20241022" },
   routing: {
     models: {
-      LIGHT: "claude-3-5-haiku-20241022",
-      MEDIUM: "claude-sonnet-4-20250514",
-      HEAVY: "claude-opus-4-20250514",
+      LIGHT: "anthropic/claude-3-5-haiku-20241022",
+      MEDIUM: "anthropic/claude-sonnet-4-20250514",
+      HEAVY: "anthropic/claude-opus-4-20250514",
     },
   },
 };
@@ -18,14 +18,14 @@ describe("validateConfig", () => {
     expect(result.valid).toBe(true);
     if (result.valid) {
       expect(result.config.compression.threshold).toBe(0.75);
-      expect(result.config.compression.model).toBe("claude-3-5-haiku-20241022");
+      expect(result.config.compression.model).toBe("anthropic/claude-3-5-haiku-20241022");
     }
   });
 
   it("rejects missing routing.models.LIGHT with a clear error", () => {
     const result = validateConfig({
-      compression: { threshold: 0.75, model: "claude-3-5-haiku-20241022" },
-      routing: { models: { LIGHT: "", MEDIUM: "m", HEAVY: "h" } },
+      compression: { threshold: 0.75, model: "anthropic/claude-3-5-haiku-20241022" },
+      routing: { models: { LIGHT: "", MEDIUM: "anthropic/m", HEAVY: "anthropic/h" } },
     });
     expect(result.valid).toBe(false);
     if (!result.valid) {
@@ -36,7 +36,7 @@ describe("validateConfig", () => {
   it("rejects threshold=1.5 with a range error", () => {
     const result = validateConfig({
       ...VALID_CONFIG,
-      compression: { threshold: 1.5, model: "claude-3-5-haiku-20241022" },
+      compression: { threshold: 1.5, model: "anthropic/claude-3-5-haiku-20241022" },
     });
     expect(result.valid).toBe(false);
     if (!result.valid) {
@@ -44,13 +44,13 @@ describe("validateConfig", () => {
     }
   });
 
-  it("detects self-referencing model containing 'clawmux'", () => {
+  it("detects self-referencing model containing 'clawmux-' prefix", () => {
     const result = validateConfig({
       ...VALID_CONFIG,
       routing: {
         models: {
-          LIGHT: "claude-3-5-haiku-20241022",
-          MEDIUM: "claude-sonnet-4-20250514",
+          LIGHT: "anthropic/claude-3-5-haiku-20241022",
+          MEDIUM: "anthropic/claude-sonnet-4-20250514",
           HEAVY: "clawmux-anthropic/auto",
         },
       },
@@ -77,12 +77,12 @@ describe("validateConfig", () => {
 
   it("merges partial config with defaults", () => {
     const partial = {
-      compression: { threshold: 0.8, model: "claude-3-5-haiku-20241022", targetRatio: 0.5 },
+      compression: { threshold: 0.8, model: "anthropic/claude-3-5-haiku-20241022", targetRatio: 0.5 },
       routing: {
         models: {
-          LIGHT: "claude-3-5-haiku-20241022",
-          MEDIUM: "claude-sonnet-4-20250514",
-          HEAVY: "claude-opus-4-20250514",
+          LIGHT: "anthropic/claude-3-5-haiku-20241022",
+          MEDIUM: "anthropic/claude-sonnet-4-20250514",
+          HEAVY: "anthropic/claude-opus-4-20250514",
         },
       },
     };
@@ -102,7 +102,7 @@ describe("validateConfig", () => {
   it("rejects non-number threshold", () => {
     const result = validateConfig({
       ...VALID_CONFIG,
-      compression: { threshold: "high" as unknown as number, model: "claude-3-5-haiku-20241022" },
+      compression: { threshold: "high" as unknown as number, model: "anthropic/claude-3-5-haiku-20241022" },
     });
     expect(result.valid).toBe(false);
     if (!result.valid) {
@@ -135,10 +135,28 @@ describe("validateConfig", () => {
     }
   });
 
+  it("rejects model IDs without provider/model format", () => {
+    const result = validateConfig({
+      compression: { threshold: 0.75, model: "claude-3-5-haiku-20241022" },
+      routing: {
+        models: {
+          LIGHT: "claude-3-5-haiku-20241022",
+          MEDIUM: "anthropic/claude-sonnet-4-20250514",
+          HEAVY: "anthropic/claude-opus-4-20250514",
+        },
+      },
+    });
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.errors.some((e) => e.includes("compression.model") && e.includes("provider/model"))).toBe(true);
+      expect(result.errors.some((e) => e.includes("routing.models.LIGHT") && e.includes("provider/model"))).toBe(true);
+    }
+  });
+
   it("rejects targetRatio outside 0.2–0.9", () => {
     const result = validateConfig({
       ...VALID_CONFIG,
-      compression: { threshold: 0.75, model: "claude-3-5-haiku-20241022", targetRatio: 0.1 },
+      compression: { threshold: 0.75, model: "anthropic/claude-3-5-haiku-20241022", targetRatio: 0.1 },
     });
     expect(result.valid).toBe(false);
     if (!result.valid) {
