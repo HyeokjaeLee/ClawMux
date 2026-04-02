@@ -116,6 +116,14 @@ export function validateConfig(raw: unknown): ValidationResultUnion {
     if (classifier.timeoutMs !== undefined) {
       checkOptionalNumberRange(errors, "routing.classifier.timeoutMs", classifier.timeoutMs, 500, 10000);
     }
+    if (classifier.contextMessages !== undefined) {
+      if (requireNumber(errors, "routing.classifier.contextMessages", classifier.contextMessages)) {
+        const n = classifier.contextMessages as number;
+        if (!Number.isInteger(n) || n < 1 || n > 50) {
+          errors.push("routing.classifier.contextMessages: must be a positive integer between 1 and 50, got " + String(n));
+        }
+      }
+    }
   }
 
   const scoring = routing.scoring !== undefined && isObject(routing.scoring) ? routing.scoring : null;

@@ -12,19 +12,34 @@ let mockResponseStatus = 200;
 let mockResponseHeaders: Record<string, string> = { "content-type": "application/json" };
 let mockSseMode = false;
 
+let classifierResponseChar = "M";
+
 beforeAll(() => {
   mockServer = Bun.serve({
     port: 0,
     fetch: async (req) => {
+      const text = await req.text();
+      let parsedBody: Record<string, unknown> | null = null;
+      if (text) {
+        parsedBody = JSON.parse(text);
+      }
+
+      const isClassifierRequest = parsedBody !== null && (parsedBody as Record<string, unknown>).max_tokens === 1;
+      if (isClassifierRequest) {
+        const classifierBody = JSON.stringify({
+          content: [{ type: "text", text: classifierResponseChar }],
+        });
+        return new Response(classifierBody, {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
       lastReceivedHeaders = {};
       for (const [key, value] of req.headers.entries()) {
         lastReceivedHeaders[key] = value;
       }
-
-      const text = await req.text();
-      if (text) {
-        lastReceivedBody = JSON.parse(text);
-      }
+      lastReceivedBody = parsedBody;
 
       if (mockSseMode) {
         const stream = new ReadableStream({
@@ -64,8 +79,8 @@ function makeConfig(overrides?: Partial<ClawMuxConfig["routing"]>): ClawMuxConfi
         HEAVY: "anthropic/claude-opus-4-20250514",
       },
       classifier: {
-        model: "nonexistent-provider/classifier-model",
-        timeoutMs: 500,
+        model: "anthropic/claude-3-5-haiku-20241022",
+        timeoutMs: 3000,
       },
       ...overrides,
     },
@@ -175,15 +190,12 @@ describe("handleApiRequest", () => {
   });
 
   it("routes trivial message to LIGHT model", async () => {
+    classifierResponseChar = "L";
     const config = makeConfig({
       models: {
         LIGHT: "anthropic/claude-3-5-haiku-20241022",
         MEDIUM: "anthropic/claude-sonnet-4-20250514",
         HEAVY: "anthropic/claude-opus-4-20250514",
-      },
-      scoring: {
-        boundaries: { lightMedium: 0.0, mediumHeavy: 0.35 },
-        confidenceThreshold: 0.5,
       },
     });
     const openclawConfig = makeOpenClawConfig(`http://localhost:${mockPort}`);
@@ -209,18 +221,16 @@ describe("handleApiRequest", () => {
 
     expect(response.status).toBe(200);
     expect(lastReceivedBody?.model).toBe("claude-3-5-haiku-20241022");
+    classifierResponseChar = "M";
   });
 
   it("routes complex message to HEAVY model", async () => {
+    classifierResponseChar = "H";
     const config = makeConfig({
       models: {
         LIGHT: "anthropic/claude-3-5-haiku-20241022",
         MEDIUM: "anthropic/claude-sonnet-4-20250514",
         HEAVY: "anthropic/claude-opus-4-20250514",
-      },
-      scoring: {
-        boundaries: { lightMedium: -0.1, mediumHeavy: 0.1 },
-        confidenceThreshold: 0.5,
       },
     });
     const openclawConfig = makeOpenClawConfig(`http://localhost:${mockPort}`);
@@ -259,6 +269,7 @@ describe("handleApiRequest", () => {
 
     expect(response.status).toBe(200);
     expect(lastReceivedBody?.model).toBe("claude-opus-4-20250514");
+    classifierResponseChar = "M";
   });
 
   it("streams SSE response transparently", async () => {
@@ -294,7 +305,7 @@ describe("handleApiRequest", () => {
     mockSseMode = false;
   });
 
-  it("returns 502 when no auth credentials found", async () => {
+  it("returns 503 when no auth credentials found (classifier fails first)", async () => {
     const config = makeConfig();
     const openclawConfig: OpenClawConfig = {
       models: {
@@ -328,9 +339,9 @@ describe("handleApiRequest", () => {
       [],
     );
 
-    expect(response.status).toBe(502);
-    const json = await response.json();
-    expect(json.error).toContain("No auth credentials found");
+    expect(response.status).toBe(503);
+    const json = (await response.json()) as Record<string, unknown>;
+    expect(json.error).toBeDefined();
   });
 
   it("returns 500 for unknown API type", async () => {

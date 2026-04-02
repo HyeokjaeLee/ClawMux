@@ -16,6 +16,7 @@ export const DEFAULT_CONFIG: Required<ClawMuxConfig> = {
     classifier: {
       model: undefined,
       timeoutMs: 3000,
+      contextMessages: 10,
     },
     scoring: {
       weights: {},
@@ -53,6 +54,7 @@ export function applyDefaults(partial: ClawMuxConfig): Required<ClawMuxConfig> {
       classifier: {
         model: partial.routing.classifier?.model ?? defaults.routing.classifier!.model,
         timeoutMs: partial.routing.classifier?.timeoutMs ?? defaults.routing.classifier!.timeoutMs,
+        contextMessages: partial.routing.classifier?.contextMessages ?? defaults.routing.classifier!.contextMessages,
       },
       scoring: {
         weights: { ...ds.weights, ...ps?.weights },

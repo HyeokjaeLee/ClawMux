@@ -28,12 +28,13 @@ export type RoutingDecision = {
   overrideReason?: string;
 };
 
-/** Result of LLM-based complexity classification. */
+export type ClassificationTier = "LIGHT" | "MEDIUM" | "HEAVY";
+
 export type ClassificationResult = {
-  tier: Tier;
+  tier: ClassificationTier;
   confidence: number;
-  /** Brief reason from LLM (second line of response, if present). */
   reasoning?: string;
+  error?: string;
 };
 
 /** A single message in the Anthropic messages format. */

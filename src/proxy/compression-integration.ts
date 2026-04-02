@@ -21,11 +21,17 @@ export interface BeforeForwardResult {
   wasCompressed: boolean;
 }
 
+export interface SummaryData {
+  summary: string;
+  recentMessages: Array<{ role: string; content: unknown }>;
+}
+
 export interface CompressionMiddleware {
   beforeForward(parsed: ParsedRequest, adapter: ApiAdapter): BeforeForwardResult;
   afterResponse(parsed: ParsedRequest, adapter: ApiAdapter, baseUrl: string, auth: AuthInfo): void;
   getSessionStore(): SessionStore;
   getWorker(): CompressionWorker;
+  getSummaryForSession(messages: Array<{ role: string; content: unknown }>): SummaryData | undefined;
 }
 
 function messagesToTokenMessages(
@@ -205,10 +211,39 @@ export function createCompressionMiddleware(
     }
   }
 
+  function getSummaryForSession(
+    messages: Array<{ role: string; content: unknown }>,
+  ): SummaryData | undefined {
+    if (messages.length <= 1) return undefined;
+
+    const sessionId = generateSessionId(messages);
+    const session = sessionStore.get(sessionId);
+    if (!session) return undefined;
+
+    if (
+      session.compressionState === "ready" &&
+      session.compressedSummary
+    ) {
+      const recentMessages = session.messages.slice(-3);
+      const summary = session.compressedSummary;
+
+      sessionStore.update(sessionId, {
+        compressionState: "idle",
+        compressedMessages: undefined,
+        compressedSummary: undefined,
+      });
+
+      return { summary, recentMessages };
+    }
+
+    return undefined;
+  }
+
   return {
     beforeForward,
     afterResponse,
     getSessionStore: () => sessionStore,
     getWorker: () => worker,
+    getSummaryForSession,
   };
 }

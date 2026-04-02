@@ -1,16 +1,15 @@
 import type { OpenClawConfig, AuthProfile } from "../openclaw/types.ts";
 import type { ParsedRequest, AuthInfo } from "../adapters/types.ts";
-import type { ClassificationResult, Message, Tier } from "./types.ts";
+import type { ClassificationResult, ClassificationTier, Message } from "./types.ts";
 import { getAdapter } from "../adapters/registry.ts";
 import { resolveApiKey } from "../openclaw/auth-resolver.ts";
-import { scoreComplexity } from "./scorer.ts";
-import { routeRequest } from "./tier-mapper.ts";
 
 export interface ClassifierDeps {
   openclawConfig: OpenClawConfig;
   authProfiles: AuthProfile[];
   classifierModel: string;
   timeoutMs: number;
+  contextMessages: number;
   routingModels: { LIGHT: string; MEDIUM: string; HEAVY: string };
   scoringConfig?: {
     boundaries?: { lightMedium: number; mediumHeavy: number };
@@ -19,15 +18,27 @@ export interface ClassifierDeps {
 }
 
 const CLASSIFICATION_SYSTEM_PROMPT =
-  "Classify this user message into exactly one complexity tier.\n\n" +
-  "LIGHT: Greetings, confirmations, simple lookups, single-step tasks, brief questions\n" +
-  "MEDIUM: Standard coding, explanations, moderate analysis, straightforward multi-step tasks\n" +
-  "HEAVY: Complex reasoning, architecture decisions, deep debugging, multi-domain analysis, large refactoring\n\n" +
-  "Respond with ONLY the tier name (LIGHT, MEDIUM, or HEAVY) on the first line.\n" +
-  "Optionally add a brief reason on the second line.";
+  "Classify complexity. Reply with exactly one character.\n" +
+  "L - simple: greeting, confirmation, short factual answer, single lookup\n" +
+  "M - moderate: standard coding, explanation, straightforward multi-step\n" +
+  "H - complex: deep reasoning, architecture, complex debugging, multi-domain\n" +
+  "Q - unclear without conversation context, need prior messages to judge";
 
-const VALID_TIERS = new Set<string>(["LIGHT", "MEDIUM", "HEAVY"]);
+const RECLASSIFICATION_SYSTEM_PROMPT =
+  "Classify complexity. Reply with exactly one character.\n" +
+  "L - simple: greeting, confirmation, short factual answer, single lookup\n" +
+  "M - moderate: standard coding, explanation, straightforward multi-step\n" +
+  "H - complex: deep reasoning, architecture, complex debugging, multi-domain";
+
+const TIER_MAP: Record<string, ClassificationTier> = {
+  L: "LIGHT",
+  M: "MEDIUM",
+  H: "HEAVY",
+};
+
+const VALID_CHARS = new Set(["L", "M", "H", "Q"]);
 const MAX_TEXT_LENGTH = 500;
+const MAX_RETRY_ATTEMPTS = 3;
 
 function extractLastUserText(messages: ReadonlyArray<Message>): string | undefined {
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -50,23 +61,14 @@ function extractLastUserText(messages: ReadonlyArray<Message>): string | undefin
   return undefined;
 }
 
-function parseClassificationResponse(text: string): ClassificationResult | undefined {
+function parseClassificationResponse(text: string): string | undefined {
   const trimmed = text.trim();
   if (trimmed.length === 0) return undefined;
 
-  const lines = trimmed.split("\n");
-  const firstLine = lines[0].trim().toUpperCase();
+  const firstChar = trimmed[0].toUpperCase();
+  if (!VALID_CHARS.has(firstChar)) return undefined;
 
-  if (!VALID_TIERS.has(firstLine)) return undefined;
-
-  const tier = firstLine as Tier;
-  const reasoning = lines.length > 1 ? lines.slice(1).join("\n").trim() : undefined;
-
-  return {
-    tier,
-    confidence: 1.0,
-    reasoning: reasoning || undefined,
-  };
+  return firstChar;
 }
 
 function resolveProvider(
@@ -116,10 +118,30 @@ function extractResponseText(responseBody: string): string {
   }
 }
 
-async function callClassifierLLM(
-  userText: string,
+function buildSyntheticRequest(
+  classifierModel: string,
+  messages: Array<{ role: string; content: string }>,
+  systemPrompt: string,
+): ParsedRequest {
+  return {
+    model: classifierModel,
+    messages,
+    system: systemPrompt,
+    stream: false,
+    maxTokens: 1,
+    rawBody: {
+      model: classifierModel,
+      system: systemPrompt,
+      messages,
+      stream: false,
+      max_tokens: 1,
+    },
+  };
+}
+
+function resolveAuth(
   deps: ClassifierDeps,
-): Promise<ClassificationResult | undefined> {
+): { resolved: ReturnType<typeof resolveProvider> & object; adapter: ReturnType<typeof getAdapter> & object; authInfo: AuthInfo } | undefined {
   const resolved = resolveProvider(deps.classifierModel, deps.openclawConfig);
   if (!resolved) return undefined;
 
@@ -135,25 +157,16 @@ async function callClassifierLLM(
     headerValue: auth.headerValue,
   };
 
-  const truncatedText = userText.slice(0, MAX_TEXT_LENGTH);
+  return { resolved, adapter, authInfo };
+}
 
-  const syntheticParsed: ParsedRequest = {
-    model: deps.classifierModel,
-    messages: [
-      { role: "user", content: truncatedText },
-    ],
-    system: CLASSIFICATION_SYSTEM_PROMPT,
-    stream: false,
-    maxTokens: 16,
-    rawBody: {
-      model: deps.classifierModel,
-      system: CLASSIFICATION_SYSTEM_PROMPT,
-      messages: [{ role: "user", content: truncatedText }],
-      stream: false,
-      max_tokens: 16,
-    },
-  };
-
+async function sendClassifierRequest(
+  syntheticParsed: ParsedRequest,
+  resolved: { modelId: string; baseUrl: string },
+  adapter: { buildUpstreamRequest: (p: ParsedRequest, m: string, b: string, a: AuthInfo) => { url: string; method: string; headers: Record<string, string>; body: string } },
+  authInfo: AuthInfo,
+  timeoutMs: number,
+): Promise<string> {
   const upstream = adapter.buildUpstreamRequest(
     syntheticParsed,
     resolved.modelId,
@@ -168,36 +181,90 @@ async function callClassifierLLM(
   });
 
   const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new Error("Classifier timeout")), deps.timeoutMs);
+    setTimeout(() => reject(new Error("Classifier timeout")), timeoutMs);
   });
 
   const response = await Promise.race([fetchPromise, timeoutPromise]);
 
   const body = await response.text();
-  if (!response.ok) return undefined;
+  if (!response.ok) {
+    throw new Error(`Classifier HTTP ${response.status}: ${body.slice(0, 200)}`);
+  }
 
-  const responseText = extractResponseText(body);
-  return parseClassificationResponse(responseText);
+  return extractResponseText(body);
 }
 
-function fallbackToKeywordScorer(
-  messages: ReadonlyArray<Message>,
-  deps: ClassifierDeps,
-): ClassificationResult {
-  try {
-    const scoringResult = scoreComplexity(messages);
-    const decision = routeRequest(scoringResult, {
-      models: deps.routingModels,
-      scoring: deps.scoringConfig,
-    });
-    return {
-      tier: decision.tier,
-      confidence: decision.confidence,
-      reasoning: "Keyword scorer fallback",
-    };
-  } catch {
-    return { tier: "HEAVY", confidence: 0.0, reasoning: "All classifiers failed" };
+function buildContextMessages(
+  allMessages: ReadonlyArray<Message>,
+  userText: string,
+  contextCount: number,
+): Array<{ role: string; content: string }> {
+  const contextMsgs: Array<{ role: string; content: string }> = [];
+
+  const relevantMessages = allMessages.filter(
+    (m) => m.role === "user" || m.role === "assistant",
+  );
+
+  const lastN = relevantMessages.slice(-contextCount);
+
+  for (const msg of lastN) {
+    let text: string;
+    if (typeof msg.content === "string") {
+      text = msg.content;
+    } else if (Array.isArray(msg.content)) {
+      text = msg.content
+        .filter((b) => b.type === "text" && b.text)
+        .map((b) => b.text)
+        .join(" ");
+    } else {
+      continue;
+    }
+    contextMsgs.push({ role: msg.role, content: text });
   }
+
+  const lastContext = contextMsgs[contextMsgs.length - 1];
+  if (!lastContext || lastContext.content !== userText || lastContext.role !== "user") {
+    contextMsgs.push({ role: "user", content: userText });
+  }
+
+  return contextMsgs;
+}
+
+function errorResult(reasoning: string, errorMessage: string): ClassificationResult {
+  return { tier: "HEAVY", confidence: 0.0, reasoning, error: errorMessage };
+}
+
+async function callClassifierWithRetry(
+  userText: string,
+  deps: ClassifierDeps,
+  authCtx: { resolved: { modelId: string; baseUrl: string }; adapter: { buildUpstreamRequest: (p: ParsedRequest, m: string, b: string, a: AuthInfo) => { url: string; method: string; headers: Record<string, string>; body: string } }; authInfo: AuthInfo },
+): Promise<string> {
+  const truncatedText = userText.slice(0, MAX_TEXT_LENGTH);
+  const messages: Array<{ role: string; content: string }> = [
+    { role: "user", content: truncatedText },
+  ];
+
+  let syntheticParsed = buildSyntheticRequest(deps.classifierModel, messages, CLASSIFICATION_SYSTEM_PROMPT);
+  let responseText = await sendClassifierRequest(syntheticParsed, authCtx.resolved, authCtx.adapter, authCtx.authInfo, deps.timeoutMs);
+
+  let parsed = parseClassificationResponse(responseText);
+  if (parsed) return parsed;
+
+  for (let attempt = 1; attempt < MAX_RETRY_ATTEMPTS; attempt++) {
+    const retryMessages: Array<{ role: string; content: string }> = [
+      { role: "user", content: truncatedText },
+      { role: "assistant", content: responseText },
+      { role: "user", content: "Invalid response. Reply with exactly one character: L, M, H, or Q" },
+    ];
+
+    syntheticParsed = buildSyntheticRequest(deps.classifierModel, retryMessages, CLASSIFICATION_SYSTEM_PROMPT);
+    responseText = await sendClassifierRequest(syntheticParsed, authCtx.resolved, authCtx.adapter, authCtx.authInfo, deps.timeoutMs);
+
+    parsed = parseClassificationResponse(responseText);
+    if (parsed) return parsed;
+  }
+
+  throw new Error(`Classification failed after ${MAX_RETRY_ATTEMPTS} attempts. Last response: "${responseText}"`);
 }
 
 export async function classifyComplexity(
@@ -206,14 +273,40 @@ export async function classifyComplexity(
 ): Promise<ClassificationResult> {
   const userText = extractLastUserText(messages);
   if (!userText) {
-    return { tier: "HEAVY", confidence: 0.0, reasoning: "No user message found" };
+    return errorResult("No user message found", "No user message found in request");
+  }
+
+  const authCtx = resolveAuth(deps);
+  if (!authCtx) {
+    return errorResult("No classifier provider available", "Classification unavailable: no provider, adapter, or auth for classifier model");
   }
 
   try {
-    const result = await callClassifierLLM(userText, deps);
-    if (result) return result;
-    return fallbackToKeywordScorer(messages, deps);
-  } catch {
-    return fallbackToKeywordScorer(messages, deps);
+    const charResult = await callClassifierWithRetry(userText, deps, authCtx);
+
+    if (charResult === "Q") {
+      console.log(`[clawmux] Classification needs context, retrying with ${deps.contextMessages} messages`);
+
+      const contextMsgs = buildContextMessages(messages, userText, deps.contextMessages);
+      const syntheticParsed = buildSyntheticRequest(deps.classifierModel, contextMsgs, RECLASSIFICATION_SYSTEM_PROMPT);
+      const retryText = await sendClassifierRequest(syntheticParsed, authCtx.resolved, authCtx.adapter, authCtx.authInfo, deps.timeoutMs);
+      const retryChar = parseClassificationResponse(retryText);
+
+      if (retryChar && TIER_MAP[retryChar]) {
+        return { tier: TIER_MAP[retryChar], confidence: 0.9, reasoning: "Classified with conversation context" };
+      }
+
+      return errorResult("Re-classification failed", `Re-classification returned invalid response: "${retryText}"`);
+    }
+
+    const tier = TIER_MAP[charResult];
+    if (tier) {
+      return { tier, confidence: 1.0 };
+    }
+
+    return errorResult("Unexpected classification character", `Unexpected classification: ${charResult}`);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return errorResult("Classification failed", message);
   }
 }

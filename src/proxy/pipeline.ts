@@ -10,6 +10,8 @@ import "../adapters/openai-responses.ts";
 import "../adapters/google.ts";
 import "../adapters/ollama.ts";
 import "../adapters/bedrock.ts";
+import { detectCompaction } from "../compression/compaction-detector.ts";
+import { buildSyntheticSummaryResponse, buildSyntheticHttpResponse } from "../compression/synthetic-response.ts";
 import type { Message, RoutingDecision } from "../routing/types.ts";
 import { classifyComplexity } from "../routing/llm-classifier.ts";
 import { resolveApiKey } from "../openclaw/auth-resolver.ts";
@@ -69,6 +71,24 @@ export async function handleApiRequest(
 
   const parsed = adapter.parseRequest(body);
 
+  const compactionHeaders: Record<string, string> = {};
+  req.headers.forEach((value, key) => { compactionHeaders[key] = value; });
+  const compaction = detectCompaction(compactionHeaders, parsed.messages);
+
+  if (compaction.isCompaction && compressionMiddleware) {
+    const summaryData = compressionMiddleware.getSummaryForSession(parsed.messages);
+    if (summaryData) {
+      const syntheticParsed = buildSyntheticSummaryResponse(
+        summaryData.summary,
+        summaryData.recentMessages,
+        parsed.model,
+      );
+      console.log(`[clawmux] Compaction detected (${compaction.detectedBy}) → returning synthetic response`);
+      return buildSyntheticHttpResponse(syntheticParsed, adapter);
+    }
+    console.log(`[clawmux] Compaction detected but no summary available, forwarding to upstream`);
+  }
+
   let effectiveParsed = parsed;
   if (compressionMiddleware) {
     const { messages: compressedMessages, wasCompressed } =
@@ -90,10 +110,16 @@ export async function handleApiRequest(
     authProfiles,
     classifierModel,
     timeoutMs: config.routing.classifier?.timeoutMs ?? 3000,
+    contextMessages: config.routing.classifier?.contextMessages ?? 10,
     routingModels: config.routing.models,
     scoringConfig: config.routing.scoring,
   };
   const classification = await classifyComplexity(messages, classifierDeps);
+
+  if (classification.error) {
+    return jsonErrorResponse(classification.error, 503);
+  }
+
   const decision: RoutingDecision = {
     tier: classification.tier,
     model: config.routing.models[classification.tier],
