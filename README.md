@@ -1,3 +1,4 @@
+![ClawMux logo](./docs/images/clawmux.png)
 # ClawMux
 
 Smart model routing + context compression proxy for OpenClaw. Zero dependencies.
@@ -127,6 +128,17 @@ OpenClaw → ClawMux Proxy (localhost:3456) → Upstream Provider(s)
 **Routing tiers** map to model IDs you configure. The scorer evaluates message length, code presence, reasoning depth, multi-step instructions, and other signals to pick the cheapest model that can handle the request.
 
 **Context compression** runs in the background after each response. When the conversation approaches the configured threshold, ClawMux summarizes older messages before the next request goes out. This keeps costs down on long conversations without interrupting the flow.
+
+### Context Window Resolution
+
+ClawMux resolves each model's context window using this priority chain:
+
+1. **clawmux.json** `routing.contextWindows` — explicit per-model override
+2. **openclaw.json** `models.providers[provider].models[].contextWindow` — user config
+3. **OpenClaw built-in catalog** — pi-ai model database (812+ models)
+4. **Default: 200,000 tokens**
+
+Compression threshold uses the **minimum** context window across all routing models, since compression happens before routing decides which model to use.
 
 ## API Endpoints
 
