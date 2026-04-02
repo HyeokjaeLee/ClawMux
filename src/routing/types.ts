@@ -9,16 +9,6 @@ export type ScoringResult = {
   textExcerpt: string;
 };
 
-/** Dimension name → weight mapping. Weights should sum to ~1.0. */
-export type ScoringWeights = Record<string, number>;
-
-/** Full scoring configuration with overridable defaults. */
-export type ScoringConfig = {
-  weights: ScoringWeights;
-  boundaries: { lightMedium: number; mediumHeavy: number };
-  confidenceThreshold: number;
-};
-
 export type Tier = "LIGHT" | "MEDIUM" | "HEAVY";
 
 export type RoutingDecision = {

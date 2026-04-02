@@ -231,7 +231,7 @@ function buildContextMessages(
 }
 
 function errorResult(reasoning: string, errorMessage: string): ClassificationResult {
-  return { tier: "HEAVY", confidence: 0.0, reasoning, error: errorMessage };
+  return { tier: "MEDIUM", confidence: 0.0, reasoning, error: errorMessage };
 }
 
 async function callClassifierWithRetry(

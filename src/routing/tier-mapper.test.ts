@@ -1,7 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import { mapScoreToTier, selectModel, routeRequest } from "./tier-mapper.ts";
 import type { ScoringResult, Tier } from "./types.ts";
-import { DEFAULT_BOUNDARIES, DEFAULT_CONFIDENCE_THRESHOLD } from "./keywords.ts";
+
+const DEFAULT_BOUNDARIES = { lightMedium: 0.0, mediumHeavy: 0.35 } as const;
+const DEFAULT_CONFIDENCE_THRESHOLD = 0.7;
 
 describe("mapScoreToTier", () => {
   it("score=-0.5, conf=0.9 → LIGHT", () => {

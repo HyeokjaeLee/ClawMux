@@ -1,5 +1,11 @@
 import type { ScoringResult, Tier, RoutingDecision } from "./types.ts";
-import { DEFAULT_BOUNDARIES, DEFAULT_CONFIDENCE_THRESHOLD } from "./keywords.ts";
+
+const DEFAULT_BOUNDARIES = {
+  lightMedium: 0.0,
+  mediumHeavy: 0.35,
+} as const;
+
+const DEFAULT_CONFIDENCE_THRESHOLD = 0.7;
 
 export function mapScoreToTier(
   score: number,

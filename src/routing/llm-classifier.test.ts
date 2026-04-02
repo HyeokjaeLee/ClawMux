@@ -186,7 +186,7 @@ describe("classifyComplexity", () => {
     const messages: Message[] = [{ role: "user", content: "do something" }];
     const result = await classifyComplexity(messages, makeDeps());
 
-    expect(result.tier).toBe("HEAVY");
+    expect(result.tier).toBe("MEDIUM");
     expect(result.confidence).toBe(0.0);
     expect(result.error).toBeDefined();
     // Re-classification prompt should NOT contain Q option
@@ -217,7 +217,7 @@ describe("classifyComplexity", () => {
     const messages: Message[] = [{ role: "user", content: "hello" }];
     const result = await classifyComplexity(messages, makeDeps());
 
-    expect(result.tier).toBe("HEAVY");
+    expect(result.tier).toBe("MEDIUM");
     expect(result.confidence).toBe(0.0);
     expect(result.error).toContain("Classification failed after 3 attempts");
   });
@@ -248,7 +248,7 @@ describe("classifyComplexity", () => {
     });
   });
 
-  test("timeout → error (not keyword fallback)", async () => {
+  test("timeout → MEDIUM fallback", async () => {
     globalThis.fetch = mockFetch(
       () => new Promise<Response>((resolve) => setTimeout(() => resolve(mockAnthropicResponse("L")), 10000)),
     );
@@ -256,38 +256,36 @@ describe("classifyComplexity", () => {
     const messages: Message[] = [{ role: "user", content: "hello" }];
     const result = await classifyComplexity(messages, makeDeps({ timeoutMs: 50 }));
 
-    expect(result.tier).toBe("HEAVY");
+    expect(result.tier).toBe("MEDIUM");
     expect(result.confidence).toBe(0.0);
     expect(result.error).toBeDefined();
     expect(result.error).toContain("Classifier timeout");
-    expect(result.reasoning).not.toBe("Keyword scorer fallback");
   });
 
-  test("network error → error (not keyword fallback)", async () => {
+  test("network error → MEDIUM fallback", async () => {
     globalThis.fetch = mockFetch(() => Promise.reject(new Error("Network failure")));
 
     const messages: Message[] = [{ role: "user", content: "hello" }];
     const result = await classifyComplexity(messages, makeDeps());
 
-    expect(result.tier).toBe("HEAVY");
+    expect(result.tier).toBe("MEDIUM");
     expect(result.confidence).toBe(0.0);
     expect(result.error).toContain("Network failure");
-    expect(result.reasoning).not.toBe("Keyword scorer fallback");
   });
 
-  test("empty messages → HEAVY with error", async () => {
+  test("empty messages → MEDIUM fallback", async () => {
     const mocked = mockFetch(() => Promise.resolve(mockAnthropicResponse("L")));
     globalThis.fetch = mocked;
 
     const result = await classifyComplexity([], makeDeps());
 
-    expect(result.tier).toBe("HEAVY");
+    expect(result.tier).toBe("MEDIUM");
     expect(result.confidence).toBe(0.0);
     expect(result.error).toBeDefined();
     expect(mocked).not.toHaveBeenCalled();
   });
 
-  test("only assistant messages → HEAVY with error", async () => {
+  test("only assistant messages → MEDIUM fallback", async () => {
     const mocked = mockFetch(() => Promise.resolve(mockAnthropicResponse("L")));
     globalThis.fetch = mocked;
 
@@ -297,7 +295,7 @@ describe("classifyComplexity", () => {
     ];
     const result = await classifyComplexity(messages, makeDeps());
 
-    expect(result.tier).toBe("HEAVY");
+    expect(result.tier).toBe("MEDIUM");
     expect(result.confidence).toBe(0.0);
     expect(result.error).toBeDefined();
     expect(mocked).not.toHaveBeenCalled();
@@ -408,7 +406,7 @@ describe("classifyComplexity", () => {
     expect(msgs[0].content).toBe("thanks");
   });
 
-  test("HTTP error response → error (not keyword fallback)", async () => {
+  test("HTTP error response → MEDIUM fallback", async () => {
     globalThis.fetch = mockFetch(() =>
       Promise.resolve(new Response("Internal Server Error", { status: 500 })),
     );
@@ -416,13 +414,12 @@ describe("classifyComplexity", () => {
     const messages: Message[] = [{ role: "user", content: "hello" }];
     const result = await classifyComplexity(messages, makeDeps());
 
-    expect(result.tier).toBe("HEAVY");
+    expect(result.tier).toBe("MEDIUM");
     expect(result.confidence).toBe(0.0);
     expect(result.error).toBeDefined();
-    expect(result.reasoning).not.toBe("Keyword scorer fallback");
   });
 
-  test("unknown provider → error (not keyword fallback)", async () => {
+  test("unknown provider → MEDIUM fallback", async () => {
     const mocked = mockFetch(() => Promise.resolve(mockAnthropicResponse("L")));
     globalThis.fetch = mocked;
 
@@ -432,7 +429,7 @@ describe("classifyComplexity", () => {
       makeDeps({ classifierModel: "unknown-provider/some-model" }),
     );
 
-    expect(result.tier).toBe("HEAVY");
+    expect(result.tier).toBe("MEDIUM");
     expect(result.confidence).toBe(0.0);
     expect(result.error).toBeDefined();
     expect(mocked).not.toHaveBeenCalled();
