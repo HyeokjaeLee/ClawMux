@@ -305,7 +305,7 @@ describe("handleApiRequest", () => {
     mockSseMode = false;
   });
 
-  it("returns 503 when no auth credentials found (classifier fails first)", async () => {
+  it("returns 502 when no auth credentials found", async () => {
     const config = makeConfig();
     const openclawConfig: OpenClawConfig = {
       models: {
@@ -339,7 +339,7 @@ describe("handleApiRequest", () => {
       [],
     );
 
-    expect(response.status).toBe(503);
+    expect(response.status).toBe(502);
     const json = (await response.json()) as Record<string, unknown>;
     expect(json.error).toBeDefined();
   });

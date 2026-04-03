@@ -12,8 +12,10 @@ import "../adapters/ollama.ts";
 import "../adapters/bedrock.ts";
 import { detectCompaction } from "../compression/compaction-detector.ts";
 import { buildSyntheticSummaryResponse, buildSyntheticHttpResponse } from "../compression/synthetic-response.ts";
-import type { Message, RoutingDecision } from "../routing/types.ts";
-import { classifyComplexity } from "../routing/llm-classifier.ts";
+import type { Message, RoutingDecision, ClassificationResult } from "../routing/types.ts";
+import { classifyLocal } from "../routing/local-classifier.ts";
+import { scoreComplexity } from "../routing/complexity-scorer.ts";
+import { mapScoreToTier } from "../routing/tier-mapper.ts";
 import { resolveApiKey } from "../openclaw/auth-resolver.ts";
 import { translateResponse } from "../adapters/stream-transformer.ts";
 import { setRouteHandler } from "./router.ts";
@@ -104,20 +106,54 @@ export async function handleApiRequest(
   }
 
   const messages = effectiveParsed.messages as unknown as ReadonlyArray<Message>;
-  const classifierModel = config.routing.classifier?.model ?? config.routing.models.LIGHT;
-  const classifierDeps = {
-    openclawConfig,
-    authProfiles,
-    classifierModel,
-    timeoutMs: config.routing.classifier?.timeoutMs ?? 3000,
-    contextMessages: config.routing.classifier?.contextMessages ?? 10,
-    routingModels: config.routing.models,
-    scoringConfig: config.routing.scoring,
-  };
-  const classification = await classifyComplexity(messages, classifierDeps);
+  const mode = config.routing.classifier?.mode ?? "local";
+  const boundaries = config.routing.scoring?.boundaries ?? { lightMedium: 0.0, mediumHeavy: 0.35 };
+  const confidenceThreshold = config.routing.scoring?.confidenceThreshold ?? 0.7;
 
-  if (classification.error) {
-    return jsonErrorResponse(classification.error, 503);
+  let classification: ClassificationResult;
+  let source: string;
+
+  if (mode === "local") {
+    classification = await classifyLocal(messages);
+    source = "local";
+  } else if (mode === "heuristic") {
+    const scoringResult = scoreComplexity(messages, {
+      weights: config.routing.scoring?.weights,
+    });
+    const { tier: hTier, overrideReason: hReason } = mapScoreToTier(
+      scoringResult.score,
+      scoringResult.confidence,
+      boundaries,
+      confidenceThreshold,
+    );
+    classification = {
+      tier: hTier,
+      confidence: scoringResult.confidence,
+      reasoning: hReason ? `heuristic: ${hReason}` : "heuristic",
+    };
+    source = "heuristic";
+  } else {
+    const scoringResult = scoreComplexity(messages, {
+      weights: config.routing.scoring?.weights,
+    });
+    const { tier: hTier, overrideReason: hReason } = mapScoreToTier(
+      scoringResult.score,
+      scoringResult.confidence,
+      boundaries,
+      confidenceThreshold,
+    );
+
+    if (scoringResult.confidence >= confidenceThreshold) {
+      classification = {
+        tier: hTier,
+        confidence: scoringResult.confidence,
+        reasoning: hReason ? `heuristic: ${hReason}` : "heuristic",
+      };
+      source = "heuristic";
+    } else {
+      classification = await classifyLocal(messages);
+      source = "local-fallback";
+    }
   }
 
   const decision: RoutingDecision = {
@@ -177,7 +213,7 @@ export async function handleApiRequest(
   }
 
   console.log(
-    `[clawmux] ${decision.tier} → ${decision.model} | conf=${classification.confidence.toFixed(2)}${classification.reasoning ? ` | ${classification.reasoning}` : ""}`,
+    `[clawmux] [${source}] ${decision.tier} → ${decision.model} | conf=${classification.confidence.toFixed(2)}${classification.reasoning ? ` | ${classification.reasoning}` : ""}`,
   );
 
   if (compressionMiddleware && upstreamResponse.ok) {

@@ -81,9 +81,9 @@ const COMPLEX_CONTENT = [
 ].join("");
 
 const MEDIUM_CONTENT = [
-  "Explain the difference between TCP and UDP protocols. ",
-  "Compare their use cases and performance characteristics. ",
-  "Provide code examples for socket programming in both.",
+  "Write a quicksort function in TypeScript with proper type annotations. ",
+  "Handle edge cases like empty arrays and arrays with duplicate values. ",
+  "Add unit tests to verify the sorting behavior.",
 ].join("");
 
 let mockAnthropicUpstream: ReturnType<typeof Bun.serve>;

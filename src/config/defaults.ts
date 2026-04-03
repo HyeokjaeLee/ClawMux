@@ -14,6 +14,7 @@ export const DEFAULT_CONFIG: Required<ClawMuxConfig> = {
     },
     contextWindows: {},
     classifier: {
+      mode: "hybrid" as const,
       model: undefined,
       timeoutMs: 3000,
       contextMessages: 10,
@@ -52,6 +53,7 @@ export function applyDefaults(partial: ClawMuxConfig): Required<ClawMuxConfig> {
       },
       contextWindows: { ...defaults.routing.contextWindows, ...partial.routing.contextWindows },
       classifier: {
+        mode: partial.routing.classifier?.mode ?? defaults.routing.classifier!.mode,
         model: partial.routing.classifier?.model ?? defaults.routing.classifier!.model,
         timeoutMs: partial.routing.classifier?.timeoutMs ?? defaults.routing.classifier!.timeoutMs,
         contextMessages: partial.routing.classifier?.contextMessages ?? defaults.routing.classifier!.contextMessages,

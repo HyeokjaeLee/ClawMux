@@ -1,11 +1,11 @@
 ![ClawMux logo](./docs/images/clawmux.png)
 # ClawMux
 
-Smart model routing + context compression proxy for OpenClaw. Zero dependencies.
+Smart model routing + context compression proxy for OpenClaw.
 
 ## Features
 
-- 🧠 **Smart Routing**: 14-dimension complexity scoring → LIGHT/MEDIUM/HEAVY tier → automatic model selection
+- 🧠 **Smart Routing**: Embedding-based semantic classification → LIGHT/MEDIUM/HEAVY tier → automatic model selection
 - 📦 **Context Compression**: Preemptive background summarization at configurable threshold (default 75%)
 - 🔌 **All Providers**: Supports all OpenClaw providers via 6 API format adapters
 - ⚡ **Zero Config Auth**: Uses OpenClaw's existing provider credentials — no separate API keys
@@ -117,7 +117,7 @@ Use `clawmux-anthropic`, `clawmux-openai`, `clawmux-openai-responses`, `clawmux-
 ```
 OpenClaw → ClawMux Proxy (localhost:3456) → Upstream Provider(s)
               │
-              ├── 1. Score complexity (14 dimensions, <1ms)
+              ├── 1. Classify complexity (embedding model, ~4ms first run, <1ms cached)
               ├── 2. Select tier → LIGHT/MEDIUM/HEAVY
               ├── 3. Compress context if threshold exceeded
               ├── 4. Translate request format if cross-provider
@@ -125,7 +125,7 @@ OpenClaw → ClawMux Proxy (localhost:3456) → Upstream Provider(s)
               └── 6. Translate response back to original format
 ```
 
-**Routing tiers** map to model IDs you configure. The scorer evaluates message length, code presence, reasoning depth, multi-step instructions, and other signals to pick the cheapest model that can handle the request.
+**Routing tiers** map to model IDs you configure. A local embedding model (`Xenova/paraphrase-multilingual-MiniLM-L12-v2`) classifies the semantic complexity of each request using nearest-centroid classification, supporting both Korean and English. Short queries are detected by a lightweight heuristic and routed to LIGHT tier directly.
 
 **Context compression** runs in the background after each response. When the conversation approaches the configured threshold, ClawMux summarizes older messages before the next request goes out. This keeps costs down on long conversations without interrupting the flow.
 

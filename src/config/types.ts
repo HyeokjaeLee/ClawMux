@@ -1,3 +1,5 @@
+export type ClassifierMode = "heuristic" | "llm" | "hybrid" | "local";
+
 export interface ClawMuxConfig {
   compression: {
     /** Range: 0.1–0.95 */
@@ -15,6 +17,8 @@ export interface ClawMuxConfig {
     /** Per-model context window overrides, e.g. { "zai/glm-5": 204800 } */
     contextWindows?: Record<string, number>;
     classifier?: {
+      /** Classification strategy: "heuristic" (fast, <1ms), "llm" (accurate, 1-5s), or "hybrid" (heuristic first, LLM fallback). Default: "hybrid" */
+      mode?: ClassifierMode;
       /** Model to use for classification. Defaults to routing.models.LIGHT */
       model?: string;
       /** Timeout in ms for classification API call. Range: 500–10000. Default: 3000 */
