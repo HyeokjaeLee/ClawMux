@@ -74,7 +74,7 @@ function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
 }
 
-/** Extract the text content from the last user message only (mirrors llm-classifier). */
+/** Extract the text content from the last user message only. */
 function extractLastUserText(messages: ReadonlyArray<Message>): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];

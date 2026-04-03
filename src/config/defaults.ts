@@ -14,7 +14,7 @@ export const DEFAULT_CONFIG: Required<ClawMuxConfig> = {
     },
     contextWindows: {},
     classifier: {
-      mode: "hybrid" as const,
+      mode: "local" as const,
       model: undefined,
       timeoutMs: 3000,
       contextMessages: 10,

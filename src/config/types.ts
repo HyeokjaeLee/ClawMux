@@ -17,7 +17,7 @@ export interface ClawMuxConfig {
     /** Per-model context window overrides, e.g. { "zai/glm-5": 204800 } */
     contextWindows?: Record<string, number>;
     classifier?: {
-      /** Classification strategy: "heuristic" (fast, <1ms), "llm" (accurate, 1-5s), or "hybrid" (heuristic first, LLM fallback). Default: "hybrid" */
+      /** Classification strategy: "local" (embedding-based, default), "heuristic" (rule-based, <1ms), "llm" (external LLM, 1-5s), or "hybrid" (heuristic first, LLM fallback). Default: "local" */
       mode?: ClassifierMode;
       /** Model to use for classification. Defaults to routing.models.LIGHT */
       model?: string;

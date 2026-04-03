@@ -109,7 +109,7 @@ export function validateConfig(raw: unknown): ValidationResultUnion {
   const classifier = routing.classifier !== undefined && isObject(routing.classifier) ? routing.classifier : null;
   if (classifier !== null) {
     if (classifier.mode !== undefined) {
-      const validModes = ["heuristic", "llm", "hybrid"];
+      const validModes = ["heuristic", "llm", "hybrid", "local"];
       if (typeof classifier.mode !== "string" || !validModes.includes(classifier.mode as string)) {
         errors.push(`routing.classifier.mode: must be one of ${validModes.join(", ")}, got "${String(classifier.mode)}"`);
       }
