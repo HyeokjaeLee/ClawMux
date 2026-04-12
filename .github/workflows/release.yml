@@ -96,9 +96,9 @@ jobs:
             pkg.name = '@hyeokjaelee/clawmux';
             fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
           "
+          echo "//npm.pkg.github.com/:_authToken=${{ secrets.GITHUB_TOKEN }}" > .npmrc
           npm publish --registry https://npm.pkg.github.com --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          rm -f .npmrc
 
       - name: Restore package.json
         if: always()
