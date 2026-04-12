@@ -4,6 +4,7 @@ import { join, dirname } from "node:path";
 import { execSync } from "node:child_process";
 import { platform } from "node:os";
 import { createServer } from "./proxy/server.ts";
+import { initLogger, getLogDir } from "./utils/logger.ts";
 
 const VERSION = process.env.npm_package_version ?? "0.1.0";
 const SERVICE_NAME = "clawmux";
@@ -15,6 +16,7 @@ Commands:
   start       Start the proxy server (foreground)
   stop        Stop the system service
   status      Check if ClawMux service is running
+  update      Update to the latest version and restart service
   uninstall   Remove system service and OpenClaw providers
   version     Print version
   help        Show this help message
@@ -83,7 +85,7 @@ WantedBy=default.target
 }
 
 function buildLaunchdPlist(bin: string, port: string, workDir: string): string {
-  const logDir = join(getHomeDir(), ".local", "log");
+  const logDir = join(getHomeDir(), ".openclaw", "clawmux");
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -141,7 +143,7 @@ async function installService(port: string, workDir: string): Promise<void> {
     }
   } else if (os === "darwin") {
     await mkdir(LAUNCHD_DIR, { recursive: true });
-    const logDir = join(getHomeDir(), ".local", "log");
+    const logDir = join(getHomeDir(), ".openclaw", "clawmux");
     await mkdir(logDir, { recursive: true });
     await writeFile(LAUNCHD_PATH, buildLaunchdPlist(bin, port, workDir));
 
@@ -224,6 +226,96 @@ async function removeService(): Promise<void> {
       await unlink(LAUNCHD_PATH);
       console.log("[info] launchd plist removed");
     }
+  }
+}
+
+// ── Update ──────────────────────────────────────────────
+
+async function checkForUpdate(): Promise<void> {
+  try {
+    const res = await fetch("https://registry.npmjs.org/clawmux/latest", {
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!res.ok) return;
+    const data = await res.json() as { version?: string };
+    const latest = data.version;
+    if (!latest || latest === VERSION) return;
+
+    const [curMajor, curMinor, curPatch] = VERSION.split(".").map(Number);
+    const [latMajor, latMinor, latPatch] = latest.split(".").map(Number);
+    const isNewer =
+      latMajor > curMajor ||
+      (latMajor === curMajor && latMinor > curMinor) ||
+      (latMajor === curMajor && latMinor === curMinor && latPatch > curPatch);
+
+    if (isNewer) {
+      console.log(`[clawmux] Update available: ${VERSION} → ${latest}`);
+      console.log(`[clawmux] Run 'clawmux update' to upgrade`);
+    }
+  } catch (_) { void _; }
+}
+
+function detectPackageManager(): "bunx" | "npx" {
+  try {
+    execSync("which bun", { stdio: "pipe" });
+    return "bunx";
+  } catch {
+    return "npx";
+  }
+}
+
+async function update(): Promise<void> {
+  const pm = detectPackageManager();
+  console.log(`[clawmux] Checking for updates...`);
+
+  try {
+    const res = await fetch("https://registry.npmjs.org/clawmux/latest", {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) {
+      console.error("[error] Failed to check npm registry");
+      process.exit(1);
+    }
+    const data = await res.json() as { version?: string };
+    const latest = data.version;
+
+    if (!latest) {
+      console.error("[error] Could not determine latest version");
+      process.exit(1);
+    }
+
+    if (latest === VERSION) {
+      console.log(`[clawmux] Already on latest version (${VERSION})`);
+      return;
+    }
+
+    console.log(`[clawmux] Updating ${VERSION} → ${latest}...`);
+
+    if (pm === "bunx") {
+      execSync("bun pm cache rm clawmux 2>/dev/null; bunx clawmux@latest version", { stdio: "inherit" });
+    } else {
+      execSync("npx clawmux@latest version", { stdio: "inherit" });
+    }
+
+    const os = platform();
+    if (os === "linux") {
+      try {
+        execSync(`systemctl --user restart ${SERVICE_NAME}`, { stdio: "pipe" });
+        console.log("[clawmux] Service restarted");
+      } catch (_) { void _; }
+    } else if (os === "darwin") {
+      try {
+        execSync(`launchctl unload ${LAUNCHD_PATH}`, { stdio: "pipe" });
+        execSync(`launchctl load -w ${LAUNCHD_PATH}`, { stdio: "pipe" });
+        console.log("[clawmux] Service restarted");
+      } catch (_) { void _; }
+    }
+
+    console.log(`[clawmux] Updated to ${latest}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[error] Update failed: ${msg}`);
+    process.exit(1);
   }
 }
 
@@ -319,9 +411,14 @@ function start(): void {
     port = parseInt(args[portIdx + 1], 10);
   }
 
+  initLogger();
+
   const server = createServer({ port, host: "127.0.0.1" });
   server.start();
   console.log(`[clawmux] Proxy server running on http://127.0.0.1:${port}`);
+  console.log(`[clawmux] Logs: ${getLogDir()}`);
+
+  checkForUpdate();
 }
 
 async function uninstall(): Promise<void> {
@@ -375,6 +472,12 @@ switch (command) {
     break;
   case "status":
     getStatus();
+    break;
+  case "update":
+    update().catch((err: Error) => {
+      console.error(`[error] ${err.message}`);
+      process.exit(1);
+    });
     break;
   case "uninstall":
     uninstall().catch((err: Error) => {

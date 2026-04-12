@@ -158,6 +158,38 @@ After installation, these providers are available in OpenClaw:
 | `CLAWMUX_PORT` | Proxy server port | `3456` |
 | `OPENCLAW_CONFIG_PATH` | Path to openclaw.json | `~/.openclaw/openclaw.json` |
 
+## Update
+
+ClawMux checks for updates automatically on every server start. If a new version is available, it logs:
+
+```
+[clawmux] Update available: 0.1.7 → 0.2.0
+[clawmux] Run 'clawmux update' to upgrade
+```
+
+To update:
+
+```bash
+clawmux update
+```
+
+This will download the latest version and restart the system service. Config (`clawmux.json`) is preserved.
+
+### For LLM Agents
+
+If the user asks to update ClawMux, or if you see the "Update available" message in logs, run:
+
+```bash
+clawmux update
+```
+
+Verify after update:
+
+```bash
+clawmux version
+clawmux status
+```
+
 ## Uninstall
 
 ```bash
