@@ -6,7 +6,7 @@ import { platform } from "node:os";
 import { createServer } from "./proxy/server.ts";
 import { initLogger, getLogDir } from "./utils/logger.ts";
 
-const VERSION = process.env.npm_package_version ?? "0.1.0";
+const VERSION = process.env.npm_package_version ?? "__CLAWMUX_VERSION__";
 const SERVICE_NAME = "clawmux";
 
 const HELP = `Usage: clawmux <command>
