@@ -5,9 +5,18 @@ import type { AuthInfo, ParsedRequest } from "./types.ts";
 const adapter = new BedrockAdapter();
 
 const defaultAuth: AuthInfo = {
-  apiKey: "aws-placeholder",
+  apiKey: "AKIDEXAMPLE",
   headerName: "Authorization",
-  headerValue: "AWS4-HMAC-SHA256 placeholder",
+  headerValue: "",
+  awsAccessKeyId: "AKIDEXAMPLE",
+  awsSecretKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+  awsRegion: "us-east-1",
+};
+
+const legacyAuth: AuthInfo = {
+  apiKey: "some-key",
+  headerName: "Authorization",
+  headerValue: "Bearer some-key",
 };
 
 describe("BedrockAdapter", () => {
@@ -116,7 +125,7 @@ describe("BedrockAdapter", () => {
       expect(result.method).toBe("POST");
     });
 
-    test("includes auth header", () => {
+    test("includes SigV4 auth headers when AWS credentials provided", () => {
       const result = adapter.buildUpstreamRequest(
         baseParsed,
         "anthropic.claude-3-sonnet",
@@ -124,9 +133,21 @@ describe("BedrockAdapter", () => {
         defaultAuth,
       );
 
-      expect(result.headers["Authorization"]).toBe(
-        "AWS4-HMAC-SHA256 placeholder",
+      expect(result.headers["Authorization"]).toStartWith("AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/");
+      expect(result.headers["x-amz-date"]).toMatch(/^\d{8}T\d{6}Z$/);
+      expect(result.headers["x-amz-content-sha256"]).toMatch(/^[a-f0-9]{64}$/);
+    });
+
+    test("falls back to static auth when no AWS credentials", () => {
+      const result = adapter.buildUpstreamRequest(
+        baseParsed,
+        "anthropic.claude-3-sonnet",
+        "https://bedrock-runtime.us-east-1.amazonaws.com",
+        legacyAuth,
       );
+
+      expect(result.headers["Authorization"]).toBe("Bearer some-key");
+      expect(result.headers["x-amz-date"]).toBeUndefined();
     });
 
     test("converts messages to Bedrock content block format", () => {

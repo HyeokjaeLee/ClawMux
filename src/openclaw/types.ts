@@ -30,4 +30,8 @@ export interface ResolvedAuth {
   apiKey: string;
   headerName: string;
   headerValue: string;
+  awsAccessKeyId?: string;
+  awsSecretKey?: string;
+  awsSessionToken?: string;
+  awsRegion?: string;
 }

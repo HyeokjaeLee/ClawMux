@@ -1,5 +1,6 @@
 import type { OpenClawConfig, AuthProfile, ResolvedAuth, OpenClawProviderConfig } from "./types.js";
 import { resolveEnvVar, getProviderConfig } from "./config-reader.js";
+import { extractRegionFromUrl } from "../utils/aws-sigv4.ts";
 
 const PROVIDER_ENV_VARS: Record<string, string> = {
   anthropic: "ANTHROPIC_API_KEY",
@@ -39,12 +40,23 @@ function formatAuth(apiKey: string, providerConfig: OpenClawProviderConfig | und
     return { apiKey, headerName: "x-goog-api-key", headerValue: apiKey };
   }
 
-  // TODO: Implement AWS SigV4 auth in a future version
   if (api === "bedrock-converse-stream") {
+    const secretKey = process.env.AWS_SECRET_ACCESS_KEY ?? "";
+    const sessionToken = process.env.AWS_SESSION_TOKEN;
+    const region =
+      process.env.AWS_REGION ??
+      process.env.AWS_DEFAULT_REGION ??
+      extractRegionFromUrl(providerConfig?.baseUrl ?? "") ??
+      "us-east-1";
+
     return {
       apiKey,
       headerName: "Authorization",
-      headerValue: "AWS4-HMAC-SHA256 Credential=placeholder",
+      headerValue: "",
+      awsAccessKeyId: apiKey,
+      awsSecretKey: secretKey,
+      awsSessionToken: sessionToken,
+      awsRegion: region,
     };
   }
 

@@ -6,6 +6,7 @@ import type {
 } from "./types.ts";
 import type { ParsedResponse, StreamEvent } from "./response-types.ts";
 import { registerAdapter } from "./registry.ts";
+import { signRequest } from "../utils/aws-sigv4.ts";
 
 interface BedrockContentBlock {
   text?: string;
@@ -144,21 +145,30 @@ export class BedrockAdapter implements ApiAdapter {
       };
     }
 
+    const url = `${baseUrl}/model/${targetModel}/converse-stream`;
+    const body = JSON.stringify(requestBody);
+
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };
 
-    if (auth.apiKey) {
+    if (auth.awsAccessKeyId && auth.awsSecretKey && auth.awsRegion) {
+      const sigv4Headers = signRequest(
+        { method: "POST", url, headers, body },
+        {
+          accessKeyId: auth.awsAccessKeyId,
+          secretAccessKey: auth.awsSecretKey,
+          sessionToken: auth.awsSessionToken,
+          region: auth.awsRegion,
+        },
+      );
+      Object.assign(headers, sigv4Headers);
+    } else if (auth.apiKey) {
       headers[auth.headerName || "Authorization"] =
         auth.headerValue || auth.apiKey;
     }
 
-    return {
-      url: `${baseUrl}/model/${targetModel}/converse-stream`,
-      method: "POST",
-      headers,
-      body: JSON.stringify(requestBody),
-    };
+    return { url, method: "POST", headers, body };
   }
 
   modifyMessages(

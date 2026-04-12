@@ -272,19 +272,21 @@ describe("resolveApiKey", () => {
     expect(result?.headerValue).toBe("");
   });
 
-  test("bedrock returns placeholder", () => {
+  test("bedrock returns SigV4 credentials", () => {
     const config: OpenClawConfig = {
       models: {
         providers: {
-          bedrock: { api: "bedrock-converse-stream", apiKey: "placeholder" },
+          bedrock: { api: "bedrock-converse-stream", apiKey: "AKIDEXAMPLE" },
         },
       },
     };
 
     const result = resolveApiKey("bedrock", config, []);
-    expect(result?.apiKey).toBe("placeholder");
+    expect(result?.apiKey).toBe("AKIDEXAMPLE");
     expect(result?.headerName).toBe("Authorization");
-    expect(result?.headerValue).toContain("AWS4-HMAC-SHA256");
+    expect(result?.headerValue).toBe("");
+    expect(result?.awsAccessKeyId).toBe("AKIDEXAMPLE");
+    expect(result?.awsRegion).toBe("us-east-1");
   });
 
   test("auth profile takes priority over provider config apiKey", () => {

@@ -141,6 +141,10 @@ export async function handleApiRequest(
     apiKey: auth.apiKey,
     headerName: auth.headerName,
     headerValue: auth.headerValue,
+    awsAccessKeyId: auth.awsAccessKeyId,
+    awsSecretKey: auth.awsSecretKey,
+    awsSessionToken: auth.awsSessionToken,
+    awsRegion: auth.awsRegion,
   };
 
   const actualModelId = decision.model.split("/").slice(1).join("/");
