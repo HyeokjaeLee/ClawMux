@@ -58,7 +58,21 @@ export async function readAuthProfiles(agentId?: string, profilesPath?: string):
   }
 
   try {
-    return JSON.parse(text) as AuthProfile[];
+    const parsed = JSON.parse(text);
+
+    if (Array.isArray(parsed)) return parsed as AuthProfile[];
+
+    if (parsed && typeof parsed === "object" && parsed.profiles) {
+      return Object.entries(parsed.profiles as Record<string, Record<string, unknown>>).map(
+        ([key, profile]) => ({
+          provider: (profile.provider as string) ?? key.split(":")[0],
+          apiKey: (profile.access as string) ?? (profile.apiKey as string),
+          token: (profile.token as string),
+        }),
+      );
+    }
+
+    return [];
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(`Failed to parse auth-profiles.json: ${message}`);

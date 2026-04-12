@@ -61,7 +61,7 @@ npx clawmux init
 This will:
 1. Detect OpenClaw config at `~/.openclaw/openclaw.json`
 2. Create `clawmux.json` from the default template
-3. Register 6 ClawMux providers (`clawmux-anthropic`, `clawmux-openai`, etc.) in OpenClaw config
+3. Register `clawmux` provider in OpenClaw config
 4. Install a system service for auto-start on boot (systemd on Linux, launchd on macOS)
 
 ### Step 3: Verify Installation
@@ -106,11 +106,11 @@ Both should return JSON responses. If they fail, check `clawmux status` and serv
 Tell the user to select a ClawMux provider:
 
 ```bash
-openclaw provider clawmux-anthropic
+openclaw provider clawmux
 openclaw chat
 ```
 
-Send a simple message like "hi" — it should route to the LIGHT model. Send a complex question — it should route to HEAVY. Check `/stats` to confirm tier distribution.
+Send a simple message like "hi" — it should route to the LIGHT model. Send a complex question — it should route to HEAVY.
 
 Setup is complete.
 
@@ -138,18 +138,9 @@ Setup is complete.
 
 Both runtimes use the same codebase. Bun is recommended for faster HTTP performance.
 
-## Registered Providers
+## Registered Provider
 
-After installation, these providers are available in OpenClaw:
-
-| Provider Name | API Format |
-|---|---|
-| `clawmux-anthropic` | Anthropic Messages |
-| `clawmux-openai` | OpenAI Completions |
-| `clawmux-openai-responses` | OpenAI Responses |
-| `clawmux-google` | Google Generative AI |
-| `clawmux-ollama` | Ollama |
-| `clawmux-bedrock` | AWS Bedrock |
+After installation, the `clawmux` provider is available in OpenClaw with model `auto`. It accepts all API formats and routes requests based on complexity classification.
 
 ## Environment Variables
 
@@ -196,7 +187,7 @@ clawmux status
 clawmux uninstall
 ```
 
-Stops the system service, removes the service file, and removes all `clawmux-*` providers from your OpenClaw config.
+Stops the system service, removes the service file, and removes the `clawmux` provider from your OpenClaw config.
 
 ## Install from Source (development)
 

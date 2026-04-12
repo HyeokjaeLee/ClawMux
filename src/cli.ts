@@ -29,14 +29,8 @@ Environment:
   CLAWMUX_PORT            Server port override
   OPENCLAW_CONFIG_PATH    Path to openclaw.json`;
 
-const PROVIDERS = [
-  { key: "clawmux-anthropic", api: "anthropic-messages" },
-  { key: "clawmux-openai", api: "openai-completions" },
-  { key: "clawmux-openai-responses", api: "openai-responses" },
-  { key: "clawmux-google", api: "google-generative-ai" },
-  { key: "clawmux-ollama", api: "ollama" },
-  { key: "clawmux-bedrock", api: "bedrock-converse-stream" },
-];
+const PROVIDER_KEY = "clawmux";
+const PROVIDER_API = "anthropic-messages";
 
 async function fileExistsLocal(path: string): Promise<boolean> {
   try {
@@ -348,7 +342,12 @@ async function init(): Promise<void> {
       await copyFile(examplePath, clawmuxJsonPath);
       console.log("[info] Created clawmux.json from clawmux.example.json");
     } else {
-      console.warn("[warn] clawmux.json not found and no clawmux.example.json to copy from");
+      const defaultConfig = {
+        compression: { threshold: 0.75, model: "" },
+        routing: { models: { LIGHT: "", MEDIUM: "", HEAVY: "" } },
+      };
+      await writeFile(clawmuxJsonPath, JSON.stringify(defaultConfig, null, 2) + "\n");
+      console.log("[info] Created default clawmux.json (configure models before use)");
     }
   }
 
@@ -360,26 +359,16 @@ async function init(): Promise<void> {
   if (!models.providers) models.providers = {};
   const providers = models.providers as Record<string, unknown>;
 
-  let added = 0;
-  for (const { key, api } of PROVIDERS) {
-    if (providers[key]) {
-      console.log(`  skip  ${key} (already exists)`);
-      continue;
-    }
-    providers[key] = {
+  if (providers[PROVIDER_KEY]) {
+    console.log(`  skip  ${PROVIDER_KEY} (already exists)`);
+  } else {
+    providers[PROVIDER_KEY] = {
       baseUrl: "http://localhost:3456",
-      api,
+      api: PROVIDER_API,
       models: [{ id: "auto", name: "ClawMux Auto Router" }],
     };
-    added++;
-    console.log(`  added ${key}`);
-  }
-
-  if (added > 0) {
     await writeFile(openclawConfigPath, JSON.stringify(config, null, 2) + "\n");
-    console.log(`\nAdded ${added} provider(s) to openclaw.json`);
-  } else {
-    console.log("\nAll ClawMux providers already registered.");
+    console.log(`  added ${PROVIDER_KEY} provider to openclaw.json`);
   }
 
   const port = process.env.CLAWMUX_PORT ?? "3456";
@@ -438,7 +427,7 @@ async function uninstall(): Promise<void> {
 
     let removed = 0;
     for (const key of Object.keys(providers)) {
-      if (key.startsWith("clawmux-")) {
+      if (key === "clawmux" || key.startsWith("clawmux-")) {
         delete providers[key];
         removed++;
       }

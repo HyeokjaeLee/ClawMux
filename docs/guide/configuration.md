@@ -31,7 +31,7 @@ If the user doesn't have a preference, recommend models based on their available
 
 Edit `clawmux.json` with the user's choices. Model IDs use `provider/model` format matching the keys in `openclaw.json`.
 
-⚠️ **Do NOT use `clawmux-*` provider names** — this causes infinite routing loops.
+⚠️ **Do NOT use `clawmux` as a provider name in model IDs** — this causes infinite routing loops.
 
 Example for Anthropic-only:
 
@@ -79,7 +79,7 @@ curl -s http://localhost:3456/stats
 If both return JSON, configuration is complete. Tell the user:
 
 ```bash
-openclaw provider clawmux-anthropic
+openclaw provider clawmux
 openclaw chat
 ```
 
@@ -110,17 +110,11 @@ ClawMux is configured via `clawmux.json`. Changes are watched and applied withou
 Select a ClawMux provider in OpenClaw and verify routing works:
 
 ```bash
-openclaw provider clawmux-anthropic
+openclaw provider clawmux
 openclaw chat
 ```
 
 Send a simple message like "hi" — it should route to the LIGHT model. Send a complex question — it should route to HEAVY.
-
-Check routing stats:
-
-```bash
-curl http://localhost:3456/stats
-```
 
 ## Full Config Reference
 
@@ -142,7 +136,7 @@ curl http://localhost:3456/stats
 | `MEDIUM` | string | Model for moderate tasks (coding, explanations) |
 | `HEAVY` | string | Model for complex tasks (architecture, multi-domain analysis) |
 
-Model IDs use `provider/model` format matching your OpenClaw config. Do **not** use `clawmux-*` provider names here — this causes infinite routing loops.
+Model IDs use `provider/model` format matching your OpenClaw config. Do **not** use `clawmux` as a provider name here — this causes infinite routing loops.
 
 #### routing.contextWindows (optional)
 

@@ -49,7 +49,7 @@ Copy `clawmux.example.json` to `clawmux.json` and adjust as needed:
       "LIGHT": "anthropic/claude-3-5-haiku-20241022",
       "MEDIUM": "anthropic/claude-sonnet-4-20250514",
       "HEAVY": "anthropic/claude-opus-4-20250514"
-      // Model IDs use 'provider/model' format. Do NOT use provider names starting with "clawmux-" — causes infinite loops
+      // Model IDs use 'provider/model' format. Do NOT use "clawmux" as provider — causes infinite loops
     }
   },
   "server": {
@@ -81,20 +81,13 @@ All three providers must be configured in your `openclaw.json`. ClawMux handles 
 
 Supported translation pairs: Anthropic ↔ OpenAI ↔ Google ↔ Ollama ↔ Bedrock (all combinations).
 
-## Supported Providers
+## Provider
 
-ClawMux registers itself as six providers in OpenClaw, one per API format:
+ClawMux registers as a single provider `clawmux` in OpenClaw with model `auto`. It accepts all API formats (Anthropic, OpenAI, Google, Ollama, Bedrock) and translates between them automatically.
 
-| API Format | Providers |
-|---|---|
-| `anthropic-messages` | Anthropic, Synthetic, Kimi Coding |
-| `openai-completions` | OpenAI, Moonshot, ZAI, Cerebras, vLLM, SGLang, LM Studio, OpenRouter, Together, NVIDIA, Venice, Groq, Mistral, xAI, HuggingFace, Cloudflare, Volcengine, BytePlus, Vercel, Kilocode, Qianfan, ModelStudio, MiniMax, Xiaomi |
-| `openai-responses` | OpenAI (newer), OpenAI Codex |
-| `google-generative-ai` | Google Gemini, Google Vertex |
-| `ollama` | Ollama |
-| `bedrock-converse-stream` | AWS Bedrock |
-
-Use `clawmux-anthropic`, `clawmux-openai`, `clawmux-openai-responses`, `clawmux-google`, `clawmux-ollama`, or `clawmux-bedrock` as the provider name in OpenClaw.
+```bash
+openclaw provider clawmux
+```
 
 ## How It Works
 
@@ -155,4 +148,4 @@ Tests are co-located with source files as `*.test.ts`.
 clawmux uninstall
 ```
 
-Stops the system service, removes the service file, and removes all `clawmux-*` providers from your OpenClaw config. A backup is created before any changes.
+Stops the system service, removes the service file, and removes the `clawmux` provider from your OpenClaw config. A backup is created before any changes.
