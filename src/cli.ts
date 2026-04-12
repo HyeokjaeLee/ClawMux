@@ -3,7 +3,7 @@ import { readFile, writeFile, copyFile, access, mkdir, unlink } from "node:fs/pr
 import { join, dirname } from "node:path";
 import { execSync } from "node:child_process";
 import { platform } from "node:os";
-import { createServer } from "./proxy/server.ts";
+import { bootstrap } from "./index.ts";
 import { initLogger, getLogDir } from "./utils/logger.ts";
 
 const VERSION = process.env.npm_package_version ?? "__CLAWMUX_VERSION__";
@@ -395,7 +395,7 @@ async function init(): Promise<void> {
   console.log("  4. Start chatting: openclaw chat");
 }
 
-function start(): void {
+async function start(): Promise<void> {
   const args = process.argv.slice(2);
   let port = parseInt(process.env.CLAWMUX_PORT ?? "3456", 10);
 
@@ -405,12 +405,8 @@ function start(): void {
   }
 
   initLogger();
-
-  const server = createServer({ port, host: "127.0.0.1" });
-  server.start();
-  console.log(`[clawmux] Proxy server running on http://127.0.0.1:${port}`);
+  await bootstrap(port);
   console.log(`[clawmux] Logs: ${getLogDir()}`);
-
   checkForUpdate();
 }
 
@@ -458,7 +454,10 @@ switch (command) {
     });
     break;
   case "start":
-    start();
+    start().catch((err: Error) => {
+      console.error(`[error] ${err.message}`);
+      process.exit(1);
+    });
     break;
   case "stop":
     stopService();

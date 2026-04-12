@@ -7,7 +7,7 @@ import { setupPipelineRoutes, createResolvedCompressionMiddleware } from "./prox
 import { clearCustomHandlers } from "./proxy/router.ts";
 import { resolve } from "node:path";
 
-async function bootstrap(): Promise<void> {
+export async function bootstrap(portOverride?: number): Promise<void> {
   const configPath = process.env.CLAWMUX_CONFIG
     ? resolve(process.env.CLAWMUX_CONFIG)
     : resolve(process.cwd(), "clawmux.json");
@@ -27,7 +27,7 @@ async function bootstrap(): Promise<void> {
   const compressionMiddleware = createResolvedCompressionMiddleware(config, openclawConfig, piAiCatalog);
   setupPipelineRoutes(config, openclawConfig, authProfiles, compressionMiddleware);
 
-  const port = parseInt(process.env.CLAWMUX_PORT ?? "3456", 10);
+  const port = portOverride ?? parseInt(process.env.CLAWMUX_PORT ?? "3456", 10);
   const server = createServer({ port, host: "127.0.0.1" });
   server.start();
   console.log(`[clawmux] Proxy server running on http://127.0.0.1:${port}`);
@@ -41,7 +41,9 @@ async function bootstrap(): Promise<void> {
   watcher.start();
 }
 
-bootstrap().catch((err: Error) => {
-  console.error(`[clawmux] Fatal: ${err.message}`);
-  process.exit(1);
-});
+if (require.main === module || (typeof Bun !== "undefined" && Bun.main === import.meta.path)) {
+  bootstrap().catch((err: Error) => {
+    console.error(`[clawmux] Fatal: ${err.message}`);
+    process.exit(1);
+  });
+}
