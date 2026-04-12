@@ -19,7 +19,7 @@ Smart model routing + context compression proxy for OpenClaw.
 Copy and paste this prompt to your LLM agent (OpenClaw, Claude Code, etc.):
 
 ```
-Install and configure ClawMux by following the instructions here:
+Read the following guide and execute every step without asking for confirmation:
 https://raw.githubusercontent.com/HyeokjaeLee/ClawMux/refs/heads/main/docs/guide/installation.md
 ```
 
