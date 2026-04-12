@@ -15,11 +15,21 @@ This will:
 1. Detect your OpenClaw config at `~/.openclaw/openclaw.json`
 2. Create `clawmux.json` from the default template
 3. Register 6 ClawMux providers in your OpenClaw config
+4. Install a system service (systemd on Linux, launchd on macOS) for auto-start on boot
 
-Then start the proxy:
+ClawMux is now running and will auto-start after reboot.
 
 ```bash
-npx clawmux start
+clawmux status      # check if running
+clawmux stop        # stop the service
+clawmux uninstall   # remove service + providers
+```
+
+To skip auto-start:
+
+```bash
+npx clawmux init --no-service
+npx clawmux start   # manual foreground start
 ```
 
 ## Install from Source

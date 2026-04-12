@@ -14,36 +14,40 @@ Smart model routing + context compression proxy for OpenClaw.
 
 ## Quick Start
 
-Requires [Bun](https://bun.sh) or [Node.js](https://nodejs.org) (18+) and a working OpenClaw installation.
+Requires [Node.js](https://nodejs.org) (18+) or [Bun](https://bun.sh) and a working OpenClaw installation.
 
 ```bash
-# Clone and install
-git clone https://github.com/your-org/ClawMux
-cd ClawMux
-bash scripts/install.sh
+npx clawmux init
 ```
 
-The install script:
-1. Detects your OpenClaw config at `~/.openclaw/openclaw.json` (override with `OPENCLAW_CONFIG_PATH`)
-2. Creates `clawmux.json` from the example if it doesn't exist
-3. Registers ClawMux as a provider in your OpenClaw config
+This will:
+1. Detect your OpenClaw config at `~/.openclaw/openclaw.json`
+2. Create `clawmux.json` from the default template
+3. Register 6 ClawMux providers in your OpenClaw config
+4. Install a system service for auto-start on boot (systemd on Linux, launchd on macOS)
 
-Then start the proxy:
-
-```bash
-# Bun (recommended — faster startup & runtime)
-bun run dev        # watch mode (development)
-bun run start      # production
-
-# Node.js
-npm run start:node # requires tsx: npm i -D tsx
-```
-
-Select a provider in OpenClaw and start chatting:
+ClawMux is now running. Select a provider and start chatting:
 
 ```bash
 openclaw provider clawmux-anthropic
 openclaw chat
+```
+
+### CLI Commands
+
+```bash
+clawmux status      # check if running
+clawmux stop        # stop the service
+clawmux start       # manual foreground start
+clawmux uninstall   # remove service + OpenClaw providers
+```
+
+### From Source (development)
+
+```bash
+git clone https://github.com/nagle-app/ClawMux
+cd ClawMux
+bun install && bun run dev
 ```
 
 ## Configuration
@@ -63,9 +67,6 @@ Copy `clawmux.example.json` to `clawmux.json` and adjust as needed:
       "MEDIUM": "anthropic/claude-sonnet-4-20250514",
       "HEAVY": "anthropic/claude-opus-4-20250514"
       // Model IDs use 'provider/model' format. Do NOT use provider names starting with "clawmux-" — causes infinite loops
-    },
-    "scoring": {
-      "confidenceThreshold": 0.7  // classification confidence below this → fallback to MEDIUM tier
     }
   },
   "server": {
@@ -125,9 +126,9 @@ OpenClaw → ClawMux Proxy (localhost:3456) → Upstream Provider(s)
               └── 6. Translate response back to original format
 ```
 
-**Routing tiers** map to model IDs you configure. A local embedding model (`Xenova/paraphrase-multilingual-MiniLM-L12-v2`) classifies the semantic complexity of each request using nearest-centroid classification (~4ms first run, <1ms cached), supporting both Korean and English. Short queries are detected by a lightweight heuristic and routed to LIGHT tier directly. No external API calls are needed for classification.
+**Routing tiers** map to model IDs you configure. A local embedding model (`Xenova/multilingual-e5-small`) classifies the semantic complexity of each request using nearest-centroid classification (~8ms p50), supporting both Korean and English. Short queries are detected by a lightweight heuristic and routed to LIGHT tier directly. No external API calls are needed for classification.
 
-**Low confidence fallback**: When the classifier's confidence falls below `confidenceThreshold` (default 0.7), the request is routed to MEDIUM tier regardless of the computed score. This prevents unreliable classifications from sending requests to an inappropriate tier — MEDIUM provides a safe cost/quality balance compared to risking unnecessary cost (HEAVY) or degraded quality (LIGHT).
+**Low confidence fallback**: When the classifier's confidence is low, the request is routed to MEDIUM tier. This prevents unreliable classifications from sending requests to an inappropriate tier — MEDIUM provides a safe cost/quality balance.
 
 **Context compression** runs in the background after each response. When the conversation approaches the configured threshold, ClawMux summarizes older messages before the next request goes out. This keeps costs down on long conversations without interrupting the flow.
 
@@ -168,10 +169,10 @@ Tests are co-located with source files as `*.test.ts`.
 ## Uninstall
 
 ```bash
-bash scripts/uninstall.sh
+clawmux uninstall
 ```
 
-Removes all `clawmux-*` providers from your OpenClaw config. Your original config is backed up before any changes.
+Stops the system service, removes the service file, and removes all `clawmux-*` providers from your OpenClaw config. A backup is created before any changes.
 
 ## License
 

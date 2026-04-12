@@ -1,20 +1,27 @@
 #!/usr/bin/env node
-import { readFile, writeFile, copyFile, access } from "node:fs/promises";
-import { join } from "node:path";
+import { readFile, writeFile, copyFile, access, mkdir, unlink } from "node:fs/promises";
+import { join, dirname } from "node:path";
+import { execSync } from "node:child_process";
+import { platform } from "node:os";
 import { createServer } from "./proxy/server.ts";
 
 const VERSION = process.env.npm_package_version ?? "0.1.0";
+const SERVICE_NAME = "clawmux";
 
 const HELP = `Usage: clawmux <command>
 
 Commands:
-  init      Detect OpenClaw config, create clawmux.json, register providers
-  start     Start the proxy server (foreground)
-  version   Print version
-  help      Show this help message
+  init        Detect OpenClaw config, register providers, install system service
+  start       Start the proxy server (foreground)
+  stop        Stop the system service
+  status      Check if ClawMux service is running
+  uninstall   Remove system service and OpenClaw providers
+  version     Print version
+  help        Show this help message
 
 Options:
   --port, -p <port>   Override server port (default: 3456)
+  --no-service        Skip system service installation during init
 
 Environment:
   CLAWMUX_PORT            Server port override
@@ -38,8 +45,195 @@ async function fileExistsLocal(path: string): Promise<boolean> {
   }
 }
 
+function resolveClawmuxBin(): string {
+  try {
+    return execSync("which clawmux", { encoding: "utf-8" }).trim();
+  } catch {
+    return "npx clawmux";
+  }
+}
+
+function getHomeDir(): string {
+  return process.env.HOME ?? "/root";
+}
+
+// ── Service management ─────────────────────────────────
+
+const SYSTEMD_DIR = join(getHomeDir(), ".config", "systemd", "user");
+const SYSTEMD_PATH = join(SYSTEMD_DIR, `${SERVICE_NAME}.service`);
+const LAUNCHD_DIR = join(getHomeDir(), "Library", "LaunchAgents");
+const LAUNCHD_PATH = join(LAUNCHD_DIR, `com.${SERVICE_NAME}.plist`);
+
+function buildSystemdUnit(bin: string, port: string, workDir: string): string {
+  return `[Unit]
+Description=ClawMux - Smart model routing proxy
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=${bin} start --port ${port}
+WorkingDirectory=${workDir}
+Restart=on-failure
+RestartSec=5
+Environment=CLAWMUX_PORT=${port}
+
+[Install]
+WantedBy=default.target
+`;
+}
+
+function buildLaunchdPlist(bin: string, port: string, workDir: string): string {
+  const logDir = join(getHomeDir(), ".local", "log");
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.${SERVICE_NAME}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${bin}</string>
+    <string>start</string>
+    <string>--port</string>
+    <string>${port}</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>${workDir}</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>CLAWMUX_PORT</key>
+    <string>${port}</string>
+    <key>PATH</key>
+    <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>${logDir}/clawmux.log</string>
+  <key>StandardErrorPath</key>
+  <string>${logDir}/clawmux.err</string>
+</dict>
+</plist>
+`;
+}
+
+async function installService(port: string, workDir: string): Promise<void> {
+  const bin = resolveClawmuxBin();
+  const os = platform();
+
+  if (os === "linux") {
+    await mkdir(SYSTEMD_DIR, { recursive: true });
+    await writeFile(SYSTEMD_PATH, buildSystemdUnit(bin, port, workDir));
+
+    try {
+      execSync("systemctl --user daemon-reload", { stdio: "pipe" });
+      execSync(`systemctl --user enable ${SERVICE_NAME}`, { stdio: "pipe" });
+      execSync(`systemctl --user start ${SERVICE_NAME}`, { stdio: "pipe" });
+      execSync("loginctl enable-linger $(whoami)", { stdio: "pipe" });
+      console.log("[info] systemd user service installed and started");
+      console.log(`       Service file: ${SYSTEMD_PATH}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[warn] systemd setup failed: ${msg}`);
+      console.warn("       You can start manually: clawmux start");
+    }
+  } else if (os === "darwin") {
+    await mkdir(LAUNCHD_DIR, { recursive: true });
+    const logDir = join(getHomeDir(), ".local", "log");
+    await mkdir(logDir, { recursive: true });
+    await writeFile(LAUNCHD_PATH, buildLaunchdPlist(bin, port, workDir));
+
+    try {
+      execSync(`launchctl load -w ${LAUNCHD_PATH}`, { stdio: "pipe" });
+      console.log("[info] launchd service installed and started");
+      console.log(`       Plist file: ${LAUNCHD_PATH}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[warn] launchd setup failed: ${msg}`);
+      console.warn("       You can start manually: clawmux start");
+    }
+  } else {
+    console.warn(`[warn] Auto-start not supported on ${os}. Start manually: clawmux start`);
+  }
+}
+
+function stopService(): void {
+  const os = platform();
+
+  if (os === "linux") {
+    try {
+      execSync(`systemctl --user stop ${SERVICE_NAME}`, { stdio: "pipe" });
+      console.log("[info] Service stopped");
+    } catch {
+      console.log("[info] Service is not running");
+    }
+  } else if (os === "darwin") {
+    try {
+      execSync(`launchctl unload ${LAUNCHD_PATH}`, { stdio: "pipe" });
+      console.log("[info] Service stopped");
+    } catch {
+      console.log("[info] Service is not running");
+    }
+  } else {
+    console.error(`[error] Auto-start not supported on ${os}`);
+  }
+}
+
+function getStatus(): void {
+  const os = platform();
+
+  if (os === "linux") {
+    try {
+      const output = execSync(`systemctl --user is-active ${SERVICE_NAME}`, { encoding: "utf-8" }).trim();
+      console.log(`ClawMux service: ${output}`);
+    } catch {
+      console.log("ClawMux service: inactive");
+    }
+  } else if (os === "darwin") {
+    try {
+      const output = execSync(`launchctl list | grep com.${SERVICE_NAME}`, { encoding: "utf-8" }).trim();
+      console.log(output ? `ClawMux service: running\n${output}` : "ClawMux service: not loaded");
+    } catch {
+      console.log("ClawMux service: not loaded");
+    }
+  } else {
+    console.log(`Auto-start not supported on ${os}`);
+  }
+}
+
+async function removeService(): Promise<void> {
+  const os = platform();
+
+  if (os === "linux") {
+    try {
+      execSync(`systemctl --user stop ${SERVICE_NAME}`, { stdio: "pipe" });
+      execSync(`systemctl --user disable ${SERVICE_NAME}`, { stdio: "pipe" });
+    } catch (_) { void _; }
+    if (await fileExistsLocal(SYSTEMD_PATH)) {
+      await unlink(SYSTEMD_PATH);
+      execSync("systemctl --user daemon-reload", { stdio: "pipe" });
+      console.log("[info] systemd service removed");
+    }
+  } else if (os === "darwin") {
+    try {
+      execSync(`launchctl unload ${LAUNCHD_PATH}`, { stdio: "pipe" });
+    } catch (_) { void _; }
+    if (await fileExistsLocal(LAUNCHD_PATH)) {
+      await unlink(LAUNCHD_PATH);
+      console.log("[info] launchd plist removed");
+    }
+  }
+}
+
+// ── Commands ────────────────────────────────────────────
+
 async function init(): Promise<void> {
-  const homeDir = process.env.HOME ?? "/root";
+  const args = process.argv.slice(2);
+  const noService = args.includes("--no-service");
+
+  const homeDir = getHomeDir();
   const openclawConfigPath = process.env.OPENCLAW_CONFIG_PATH ?? join(homeDir, ".openclaw", "openclaw.json");
 
   if (!(await fileExistsLocal(openclawConfigPath))) {
@@ -96,10 +290,22 @@ async function init(): Promise<void> {
     console.log("\nAll ClawMux providers already registered.");
   }
 
-  console.log("\n[info] ClawMux provider registration complete!");
+  const port = process.env.CLAWMUX_PORT ?? "3456";
+
+  if (!noService) {
+    console.log("");
+    await installService(port, process.cwd());
+  }
+
+  console.log("\n[info] ClawMux setup complete!");
   console.log("\nNext steps:");
   console.log("  1. Edit clawmux.json to configure your models");
-  console.log("  2. Run: clawmux start");
+  if (noService) {
+    console.log("  2. Run: clawmux start");
+  } else {
+    console.log("  2. ClawMux is running and will auto-start on boot");
+    console.log("     Check status: clawmux status");
+  }
   console.log("  3. Select a provider: openclaw provider clawmux-openai");
   console.log("  4. Start chatting: openclaw chat");
 }
@@ -118,6 +324,40 @@ function start(): void {
   console.log(`[clawmux] Proxy server running on http://127.0.0.1:${port}`);
 }
 
+async function uninstall(): Promise<void> {
+  await removeService();
+
+  const homeDir = getHomeDir();
+  const openclawConfigPath = process.env.OPENCLAW_CONFIG_PATH ?? join(homeDir, ".openclaw", "openclaw.json");
+
+  if (await fileExistsLocal(openclawConfigPath)) {
+    const backupPath = `${openclawConfigPath}.bak.${Date.now()}`;
+    await copyFile(openclawConfigPath, backupPath);
+
+    const raw = await readFile(openclawConfigPath, "utf-8");
+    const config = JSON.parse(raw) as Record<string, unknown>;
+    const models = (config.models ?? {}) as Record<string, unknown>;
+    const providers = (models.providers ?? {}) as Record<string, unknown>;
+
+    let removed = 0;
+    for (const key of Object.keys(providers)) {
+      if (key.startsWith("clawmux-")) {
+        delete providers[key];
+        removed++;
+      }
+    }
+
+    if (removed > 0) {
+      await writeFile(openclawConfigPath, JSON.stringify(config, null, 2) + "\n");
+      console.log(`[info] Removed ${removed} ClawMux provider(s) from openclaw.json`);
+    }
+  }
+
+  console.log("[info] ClawMux uninstalled");
+}
+
+// ── Entry ───────────────────────────────────────────────
+
 const command = process.argv[2];
 
 switch (command) {
@@ -129,6 +369,18 @@ switch (command) {
     break;
   case "start":
     start();
+    break;
+  case "stop":
+    stopService();
+    break;
+  case "status":
+    getStatus();
+    break;
+  case "uninstall":
+    uninstall().catch((err: Error) => {
+      console.error(`[error] ${err.message}`);
+      process.exit(1);
+    });
     break;
   case "version":
   case "--version":
