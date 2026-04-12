@@ -25,7 +25,7 @@ https://raw.githubusercontent.com/HyeokjaeLee/ClawMux/refs/heads/main/docs/guide
 
 Or install manually, but seriously, let an agent do it. Agents don't fat-finger configs.
 
-### For LLM Agents
+### For OpenClaw Agents
 
 Fetch the installation guide and follow it:
 
@@ -156,7 +156,3 @@ clawmux uninstall
 ```
 
 Stops the system service, removes the service file, and removes all `clawmux-*` providers from your OpenClaw config. A backup is created before any changes.
-
-## License
-
-MIT
