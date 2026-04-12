@@ -12,42 +12,25 @@ Smart model routing + context compression proxy for OpenClaw.
 - 📊 **Cost Tracking**: Real-time savings stats at /stats endpoint
 - 🔄 **Hot Reload**: Config changes apply without restart
 
-## Quick Start
+## Installation
 
-Requires [Node.js](https://nodejs.org) (18+) or [Bun](https://bun.sh) and a working OpenClaw installation.
+### For Humans
 
-```bash
-npx clawmux init
+Copy and paste this prompt to your LLM agent (OpenClaw, Claude Code, etc.):
+
+```
+Install and configure ClawMux by following the instructions here:
+https://raw.githubusercontent.com/HyeokjaeLee/ClawMux/refs/heads/main/docs/guide/installation.md
 ```
 
-This will:
-1. Detect your OpenClaw config at `~/.openclaw/openclaw.json`
-2. Create `clawmux.json` from the default template
-3. Register 6 ClawMux providers in your OpenClaw config
-4. Install a system service for auto-start on boot (systemd on Linux, launchd on macOS)
+Or install manually, but seriously, let an agent do it. Agents don't fat-finger configs.
 
-ClawMux is now running. Select a provider and start chatting:
+### For LLM Agents
+
+Fetch the installation guide and follow it:
 
 ```bash
-openclaw provider clawmux-anthropic
-openclaw chat
-```
-
-### CLI Commands
-
-```bash
-clawmux status      # check if running
-clawmux stop        # stop the service
-clawmux start       # manual foreground start
-clawmux uninstall   # remove service + OpenClaw providers
-```
-
-### From Source (development)
-
-```bash
-git clone https://github.com/nagle-app/ClawMux
-cd ClawMux
-bun install && bun run dev
+curl -s https://raw.githubusercontent.com/HyeokjaeLee/ClawMux/refs/heads/main/docs/guide/installation.md
 ```
 
 ## Configuration

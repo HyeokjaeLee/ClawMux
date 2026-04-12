@@ -1,8 +1,39 @@
 # Configuration
 
-ClawMux is configured via `clawmux.json` in the project root. Changes are watched and applied without restart.
+## For LLM Agents
 
-## Minimal Config
+If you're an LLM agent continuing from the installation guide, follow these steps to complete model configuration.
+
+### Step 1: Discover Available Models
+
+Read the user's OpenClaw config to find which providers and models they have:
+
+```bash
+cat ~/.openclaw/openclaw.json
+```
+
+Look at `models.providers` — each key is a provider name, and each provider has a `models` array with available model IDs.
+
+### Step 2: Ask the User About Model Assignment
+
+Ask the user which models to use for each tier. Explain the tiers:
+
+| Tier | Purpose | Ideal Model |
+|---|---|---|
+| **LIGHT** | Greetings, yes/no, simple factual questions | Cheapest/fastest (e.g., Haiku, GPT-4o-mini, GLM Flash) |
+| **MEDIUM** | Coding tasks, explanations, single-file edits | Balanced (e.g., Sonnet, GPT-4o) |
+| **HEAVY** | Architecture design, multi-domain analysis, debugging | Most capable (e.g., Opus, GPT-5.4) |
+| **compression.model** | Background summarization of long conversations | Same as LIGHT (fast and cheap) |
+
+If the user doesn't have a preference, recommend models based on their available providers.
+
+### Step 3: Write the Config
+
+Edit `clawmux.json` with the user's choices. Model IDs use `provider/model` format matching the keys in `openclaw.json`.
+
+⚠️ **Do NOT use `clawmux-*` provider names** — this causes infinite routing loops.
+
+Example for Anthropic-only:
 
 ```json
 {
@@ -18,6 +49,77 @@ ClawMux is configured via `clawmux.json` in the project root. Changes are watche
     }
   }
 }
+```
+
+Example for cross-provider:
+
+```json
+{
+  "compression": {
+    "threshold": 0.75,
+    "model": "zai/glm-5"
+  },
+  "routing": {
+    "models": {
+      "LIGHT": "zai/glm-5",
+      "MEDIUM": "anthropic/claude-sonnet-4-20250514",
+      "HEAVY": "openai/gpt-5.4"
+    }
+  }
+}
+```
+
+### Step 4: Verify
+
+```bash
+curl -s http://localhost:3456/health
+curl -s http://localhost:3456/stats
+```
+
+If both return JSON, configuration is complete. Tell the user:
+
+```bash
+openclaw provider clawmux-anthropic
+openclaw chat
+```
+
+---
+
+## For Humans
+
+ClawMux is configured via `clawmux.json`. Changes are watched and applied without restart.
+
+### Minimal Config
+
+```json
+{
+  "compression": {
+    "threshold": 0.75,
+    "model": "anthropic/claude-3-5-haiku-20241022"
+  },
+  "routing": {
+    "models": {
+      "LIGHT": "anthropic/claude-3-5-haiku-20241022",
+      "MEDIUM": "anthropic/claude-sonnet-4-20250514",
+      "HEAVY": "anthropic/claude-opus-4-20250514"
+    }
+  }
+}
+```
+
+Select a ClawMux provider in OpenClaw and verify routing works:
+
+```bash
+openclaw provider clawmux-anthropic
+openclaw chat
+```
+
+Send a simple message like "hi" — it should route to the LIGHT model. Send a complex question — it should route to HEAVY.
+
+Check routing stats:
+
+```bash
+curl http://localhost:3456/stats
 ```
 
 ## Full Config Reference

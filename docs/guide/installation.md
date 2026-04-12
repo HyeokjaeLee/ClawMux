@@ -1,89 +1,155 @@
 # Installation
 
-## Prerequisites
+## For Humans
 
-- [OpenClaw](https://github.com/nicepkg/openclaw) installed and configured (`~/.openclaw/openclaw.json`)
-- **Bun** (recommended) or **Node.js 18+**
+Paste this into your LLM agent session:
 
-## Quick Install (npm)
+```
+Install and configure ClawMux by following the instructions here:
+https://raw.githubusercontent.com/HyeokjaeLee/ClawMux/refs/heads/main/docs/guide/installation.md
+```
+
+**Alternative — do it yourself:**
 
 ```bash
+npx clawmux init   # Node.js
+bunx clawmux init  # Bun (faster)
+```
+
+Then edit `clawmux.json` to configure your models. See the [Configuration Guide](./configuration.md).
+
+## For LLM Agents
+
+> **IMPORTANT: Use `curl` to fetch this file, NOT WebFetch.** WebFetch summarizes content and loses critical details. Always use:
+>
+> ```bash
+> curl -fsSL https://raw.githubusercontent.com/HyeokjaeLee/ClawMux/refs/heads/main/docs/guide/installation.md
+> ```
+
+If you're an LLM agent helping set up ClawMux, follow these steps:
+
+### Step 1: Check Prerequisites
+
+```bash
+if command -v bun &> /dev/null; then
+    echo "Runtime: Bun $(bun --version)"
+elif command -v node &> /dev/null; then
+    echo "Runtime: Node.js $(node --version)"
+else
+    echo "ERROR: bun or node (18+) required"
+fi
+
+if [ -f ~/.openclaw/openclaw.json ]; then
+    echo "OpenClaw config found"
+else
+    echo "ERROR: OpenClaw not installed (~/.openclaw/openclaw.json missing)"
+fi
+```
+
+If OpenClaw isn't installed, help the user install it first.
+
+### Step 2: Run the Installer
+
+```bash
+# Bun (preferred — faster)
+bunx clawmux init
+
+# Node.js (alternative)
 npx clawmux init
 ```
 
 This will:
-1. Detect your OpenClaw config at `~/.openclaw/openclaw.json`
+1. Detect OpenClaw config at `~/.openclaw/openclaw.json`
 2. Create `clawmux.json` from the default template
-3. Register 6 ClawMux providers in your OpenClaw config
-4. Install a system service (systemd on Linux, launchd on macOS) for auto-start on boot
+3. Register 6 ClawMux providers (`clawmux-anthropic`, `clawmux-openai`, etc.) in OpenClaw config
+4. Install a system service for auto-start on boot (systemd on Linux, launchd on macOS)
 
-ClawMux is now running and will auto-start after reboot.
-
-```bash
-clawmux status      # check if running
-clawmux stop        # stop the service
-clawmux uninstall   # remove service + providers
-```
-
-To skip auto-start:
+### Step 3: Verify Installation
 
 ```bash
-npx clawmux init --no-service
-npx clawmux start   # manual foreground start
+clawmux status
 ```
 
-## Install from Source
+Expected output: service is active/running. If the service failed, check logs and retry.
+
+### Step 4: Configure Models
+
+This is the critical step. `clawmux.json` has a default template but needs real model IDs.
+
+**Fetch and follow the configuration guide:**
 
 ```bash
-git clone https://github.com/nagle-app/ClawMux
-cd ClawMux
-bash scripts/install.sh
+curl -fsSL https://raw.githubusercontent.com/HyeokjaeLee/ClawMux/refs/heads/main/docs/guide/configuration.md
 ```
 
-The install script auto-detects your runtime (Bun or Node.js) and installs dependencies accordingly.
+The configuration guide will instruct you to:
+1. Read `~/.openclaw/openclaw.json` to discover the user's available providers and models
+2. Ask the user which models to assign to LIGHT / MEDIUM / HEAVY tiers
+3. Write the model mapping to `clawmux.json`
+4. Verify routing works
 
-### Start the proxy
+**Do not skip this step.** Without model configuration, ClawMux cannot route requests.
+
+### Step 5: Verify Routing
+
+After configuring models, test that routing works:
 
 ```bash
-# Bun (recommended — faster startup & runtime)
-bun run dev        # watch mode (development)
-bun run start      # production
-
-# Node.js
-npm run start:node # requires tsx: npm i -D tsx
+curl -s http://localhost:3456/health
+curl -s http://localhost:3456/stats
 ```
 
-### Connect OpenClaw
+Both should return JSON responses. If they fail, check `clawmux status` and service logs.
+
+### Step 6: Connect OpenClaw
+
+Tell the user to select a ClawMux provider:
 
 ```bash
 openclaw provider clawmux-anthropic
 openclaw chat
 ```
 
+Send a simple message like "hi" — it should route to the LIGHT model. Send a complex question — it should route to HEAVY. Check `/stats` to confirm tier distribution.
+
+Setup is complete.
+
+## CLI Reference
+
+| Command | Description |
+|---|---|
+| `clawmux init` | Setup: detect OpenClaw, register providers, install service |
+| `clawmux init --no-service` | Setup without system service |
+| `clawmux start` | Start proxy server (foreground) |
+| `clawmux start --port 4000` | Start on custom port |
+| `clawmux stop` | Stop the system service |
+| `clawmux status` | Check if service is running |
+| `clawmux uninstall` | Remove service + OpenClaw providers |
+| `clawmux version` | Print version |
+
 ## Runtime Comparison
 
-| | Bun | Node.js |
+| | Node.js | Bun |
 |---|---|---|
+| Install | `npx clawmux init` | `bunx clawmux init` |
 | Startup | ~3s (model load) | ~3s (model load) |
 | Classification | ~8ms p50 | ~8ms p50 |
-| HTTP Server | `Bun.serve()` native | `node:http` + Web API adapter |
-| Install | `bun install` | `npm install` |
-| Tests | `bun test` (built-in) | Not supported (test framework is Bun-only) |
+| HTTP Server | `node:http` + Web API adapter | `Bun.serve()` native |
 
-Both runtimes use the same codebase. Bun-specific APIs are abstracted via `src/utils/runtime.ts` — the appropriate implementation is selected automatically at startup.
+Both runtimes use the same codebase. Bun is recommended for faster HTTP performance.
 
 ## Registered Providers
 
 After installation, these providers are available in OpenClaw:
 
-| Provider Name | API Format | Use With |
-|---|---|---|
-| `clawmux-anthropic` | Anthropic Messages | Anthropic, Kimi Coding |
-| `clawmux-openai` | OpenAI Completions | OpenAI, Groq, Mistral, xAI, etc. |
-| `clawmux-openai-responses` | OpenAI Responses | OpenAI Codex |
-| `clawmux-google` | Google Generative AI | Gemini, Vertex |
-| `clawmux-ollama` | Ollama | Local models |
-| `clawmux-bedrock` | Bedrock | AWS Bedrock |
+| Provider Name | API Format |
+|---|---|
+| `clawmux-anthropic` | Anthropic Messages |
+| `clawmux-openai` | OpenAI Completions |
+| `clawmux-openai-responses` | OpenAI Responses |
+| `clawmux-google` | Google Generative AI |
+| `clawmux-ollama` | Ollama |
+| `clawmux-bedrock` | AWS Bedrock |
 
 ## Environment Variables
 
@@ -95,7 +161,17 @@ After installation, these providers are available in OpenClaw:
 ## Uninstall
 
 ```bash
-bash scripts/uninstall.sh
+clawmux uninstall
 ```
 
-Removes all `clawmux-*` providers from your OpenClaw config. A backup is created before any changes.
+Stops the system service, removes the service file, and removes all `clawmux-*` providers from your OpenClaw config.
+
+## Install from Source (development)
+
+```bash
+git clone https://github.com/HyeokjaeLee/ClawMux
+cd ClawMux
+bun install
+bash scripts/install.sh
+bun run dev
+```
