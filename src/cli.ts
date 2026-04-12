@@ -41,11 +41,24 @@ async function fileExistsLocal(path: string): Promise<boolean> {
   }
 }
 
+function detectPackageManager(): "bunx" | "npx" {
+  try {
+    execSync("which bun", { stdio: "pipe" });
+    return "bunx";
+  } catch {
+    return "npx";
+  }
+}
+
 function resolveClawmuxBin(): string {
   try {
-    return execSync("which clawmux", { encoding: "utf-8" }).trim();
+    const bin = execSync("which clawmux", { encoding: "utf-8" }).trim();
+    if (bin.includes("/tmp/") || bin.includes("bunx-") || bin.includes("npx-")) {
+      return detectPackageManager() === "bunx" ? "bunx clawmux" : "npx clawmux";
+    }
+    return bin;
   } catch {
-    return "npx clawmux";
+    return detectPackageManager() === "bunx" ? "bunx clawmux" : "npx clawmux";
   }
 }
 
@@ -247,15 +260,6 @@ async function checkForUpdate(): Promise<void> {
       console.log(`[clawmux] Run 'clawmux update' to upgrade`);
     }
   } catch (_) { void _; }
-}
-
-function detectPackageManager(): "bunx" | "npx" {
-  try {
-    execSync("which bun", { stdio: "pipe" });
-    return "bunx";
-  } catch {
-    return "npx";
-  }
 }
 
 async function update(): Promise<void> {
