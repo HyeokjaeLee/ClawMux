@@ -28,7 +28,9 @@ class OpenAICompletionsAdapter implements ApiAdapter {
     };
 
     return {
-      url: `${baseUrl}/v1/chat/completions`,
+      url: /\/v\d+\/?$/.test(baseUrl)
+        ? `${baseUrl.replace(/\/$/, "")}/chat/completions`
+        : `${baseUrl}/v1/chat/completions`,
       method: "POST",
       headers: {
         "Content-Type": "application/json",

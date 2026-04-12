@@ -3,9 +3,11 @@ import type { SessionStore } from "../compression/session-store.ts";
 import type { CompressionWorker, MakeApiCall } from "../compression/worker.ts";
 import type { StatsTracker } from "./stats.ts";
 import { createSessionStore, generateSessionId } from "../compression/session-store.ts";
-import { createCompressionWorker } from "../compression/worker.ts";
+import { createCompressionWorker, truncateToFit } from "../compression/worker.ts";
 import { estimateMessagesTokens } from "../utils/token-estimator.ts";
 import type { Message } from "../utils/token-estimator.ts";
+
+const HARD_CEILING_RATIO = 0.9;
 
 export interface CompressionMiddlewareConfig {
   threshold: number;
@@ -154,6 +156,7 @@ export function createCompressionMiddleware(
         compressionState: "idle",
         compressedMessages: undefined,
         compressedSummary: undefined,
+        snapshotIndex: undefined,
       });
 
       const originalTokens = estimateMessagesTokens(messagesToTokenMessages(messages));
@@ -168,6 +171,19 @@ export function createCompressionMiddleware(
       );
 
       return { messages: compressed, wasCompressed: true };
+    }
+
+    const tokenCount = estimateMessagesTokens(messagesToTokenMessages(messages));
+    const hardCeilingTokens = HARD_CEILING_RATIO * contextWindow;
+    if (tokenCount >= hardCeilingTokens) {
+      const targetTokens = config.targetRatio * contextWindow;
+      const truncated = truncateToFit(messages, targetTokens);
+
+      console.log(
+        `[compression] Hard ceiling hit (${tokenCount} tokens >= ${Math.round(hardCeilingTokens)}), truncating to ${Math.round(targetTokens)} tokens`,
+      );
+
+      return { messages: truncated, wasCompressed: true };
     }
 
     return { messages, wasCompressed: false };

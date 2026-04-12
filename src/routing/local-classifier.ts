@@ -12,7 +12,8 @@ const TIER_MAP: Record<string, ClassificationTier> = {
   H: "HEAVY",
 };
 
-const MODEL_ID = "Xenova/paraphrase-multilingual-MiniLM-L12-v2";
+const MODEL_ID = "Xenova/multilingual-e5-small";
+const E5_PREFIX = "query: ";
 const BATCH_SIZE = 32;
 
 const TRAINING_LIGHT: string[] = [
@@ -172,7 +173,7 @@ async function computeMeanEmbedding(texts: string[]): Promise<number[]> {
   const allEmbeddings: number[][] = [];
 
   for (let i = 0; i < texts.length; i += BATCH_SIZE) {
-    const batch = texts.slice(i, i + BATCH_SIZE);
+    const batch = texts.slice(i, i + BATCH_SIZE).map((t) => E5_PREFIX + t);
     const output = await extractor(batch, { pooling: "mean", normalize: true });
     const list = output.tolist() as number[][];
     for (const emb of list) {
@@ -256,7 +257,7 @@ export async function classifyLocal(
 
   const centroids = await getCentroids();
   const extractor = await getExtractor();
-  const output = await extractor([userText], { pooling: "mean", normalize: true });
+  const output = await extractor([E5_PREFIX + userText], { pooling: "mean", normalize: true });
   const inputEmb = (output.tolist() as number[][])[0];
 
   let bestCat = CAT_M;
@@ -278,7 +279,7 @@ export async function classifyLocal(
   const heuristicQ = matchesQPattern(userText);
   if (bestCat === CAT_Q || heuristicQ) {
     const contextText = buildContextText(messages, userText, config?.contextMessages ?? 10);
-    const ctxOutput = await extractor([contextText], { pooling: "mean", normalize: true });
+    const ctxOutput = await extractor([E5_PREFIX + contextText], { pooling: "mean", normalize: true });
     const contextEmb = (ctxOutput.tolist() as number[][])[0];
 
     let reBestCat = CAT_M;

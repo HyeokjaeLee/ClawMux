@@ -14,7 +14,7 @@ Smart model routing + context compression proxy for OpenClaw.
 
 ## Quick Start
 
-Requires [Bun](https://bun.sh) and a working OpenClaw installation.
+Requires [Bun](https://bun.sh) or [Node.js](https://nodejs.org) (18+) and a working OpenClaw installation.
 
 ```bash
 # Clone and install
@@ -31,8 +31,12 @@ The install script:
 Then start the proxy:
 
 ```bash
-bun run dev        # watch mode (recommended during development)
+# Bun (recommended — faster startup & runtime)
+bun run dev        # watch mode (development)
 bun run start      # production
+
+# Node.js
+npm run start:node # requires tsx: npm i -D tsx
 ```
 
 Select a provider in OpenClaw and start chatting:
@@ -59,13 +63,6 @@ Copy `clawmux.example.json` to `clawmux.json` and adjust as needed:
       "MEDIUM": "anthropic/claude-sonnet-4-20250514",
       "HEAVY": "anthropic/claude-opus-4-20250514"
       // Model IDs use 'provider/model' format. Do NOT use provider names starting with "clawmux-" — causes infinite loops
-    },
-    "scoring": {
-      "boundaries": {
-        "lightMedium": 0.0,
-        "mediumHeavy": 0.35
-      },
-      "confidenceThreshold": 0.70  // fall back to HEAVY below this confidence
     }
   },
   "server": {
@@ -125,7 +122,7 @@ OpenClaw → ClawMux Proxy (localhost:3456) → Upstream Provider(s)
               └── 6. Translate response back to original format
 ```
 
-**Routing tiers** map to model IDs you configure. A local embedding model (`Xenova/paraphrase-multilingual-MiniLM-L12-v2`) classifies the semantic complexity of each request using nearest-centroid classification, supporting both Korean and English. Short queries are detected by a lightweight heuristic and routed to LIGHT tier directly.
+**Routing tiers** map to model IDs you configure. A local embedding model (`Xenova/paraphrase-multilingual-MiniLM-L12-v2`) classifies the semantic complexity of each request using nearest-centroid classification (~4ms first run, <1ms cached), supporting both Korean and English. Short queries are detected by a lightweight heuristic and routed to LIGHT tier directly. No external API calls are needed for classification.
 
 **Context compression** runs in the background after each response. When the conversation approaches the configured threshold, ClawMux summarizes older messages before the next request goes out. This keeps costs down on long conversations without interrupting the flow.
 

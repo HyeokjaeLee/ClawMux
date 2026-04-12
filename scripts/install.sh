@@ -12,8 +12,21 @@ warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 
 # ── Prerequisites ───────────────────────────────────────
-if ! command -v bun &>/dev/null; then
-  error "bun is required but not found in PATH. Install it from https://bun.sh"
+RUNTIME=""
+if command -v bun &>/dev/null; then
+  RUNTIME="bun"
+  info "Detected runtime: Bun $(bun --version)"
+elif command -v node &>/dev/null; then
+  NODE_MAJOR=$(node -e 'console.log(process.versions.node.split(".")[0])')
+  if [[ "$NODE_MAJOR" -lt 18 ]]; then
+    error "Node.js 18+ is required but found v$(node --version). Upgrade or install Bun from https://bun.sh"
+    exit 1
+  fi
+  RUNTIME="node"
+  info "Detected runtime: Node.js $(node --version)"
+else
+  error "bun or node (18+) is required but neither was found in PATH."
+  error "Install Bun from https://bun.sh or Node.js from https://nodejs.org"
   exit 1
 fi
 
@@ -48,9 +61,23 @@ if [[ ! -f "$CLAWMUX_JSON" ]]; then
   fi
 fi
 
-# ── Register providers via Bun ──────────────────────────
-bun -e '
-const fs = require("fs");
+# ── Install dependencies ────────────────────────────────
+if [[ "$RUNTIME" == "bun" ]]; then
+  info "Installing dependencies with bun..."
+  (cd "$PROJECT_ROOT" && bun install)
+else
+  info "Installing dependencies with npm..."
+  (cd "$PROJECT_ROOT" && npm install)
+fi
+
+# ── Register providers ──────────────────────────────────
+EVAL_CMD="bun -e"
+if [[ "$RUNTIME" == "node" ]]; then
+  EVAL_CMD="node -e"
+fi
+
+$EVAL_CMD '
+const fs = require("node:fs");
 const configPath = process.argv[1];
 const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
 
@@ -133,6 +160,10 @@ echo ""
 info "✓ ClawMux provider registration complete!"
 echo ""
 echo "Next steps:"
-echo "  1. Start ClawMux:       bun run dev"
+if [[ "$RUNTIME" == "bun" ]]; then
+  echo "  1. Start ClawMux:       bun run dev"
+else
+  echo "  1. Start ClawMux:       npm run start:node"
+fi
 echo "  2. Select a provider:    openclaw provider clawmux-openai"
 echo "  3. Start chatting:       openclaw chat"

@@ -111,8 +111,6 @@ async function captureRequest(req: Request): Promise<CapturedRequest> {
 
 let anthropicStreamMode = false;
 let openaiStreamMode = false;
-let classifierChar = "M";
-
 beforeAll(() => {
   mockAnthropicUpstream = Bun.serve({
     port: 0,
@@ -121,16 +119,6 @@ beforeAll(() => {
       let parsedBody: Record<string, unknown> | null = null;
       if (text) {
         parsedBody = JSON.parse(text) as Record<string, unknown>;
-      }
-
-      if (parsedBody !== null && parsedBody.max_tokens === 1) {
-        const classifierBody = JSON.stringify({
-          content: [{ type: "text", text: classifierChar }],
-        });
-        return new Response(classifierBody, {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
       }
 
       lastAnthropicRequest = {
@@ -208,10 +196,7 @@ beforeAll(() => {
         MEDIUM: "test-anthropic/claude-sonnet-4-20250514",
         HEAVY: "test-openai/gpt-5.4",
       },
-      classifier: {
-        model: "test-anthropic/claude-sonnet-4-20250514",
-        timeoutMs: 3000,
-      },
+
     },
     server: { port: 0, host: "127.0.0.1" },
   };
@@ -266,7 +251,6 @@ function resetState(): void {
 
 describe("Cross-provider routing", () => {
   test("Anthropic→OpenAI (non-streaming): response translated to Anthropic format", async () => {
-    classifierChar = "L";
     resetState();
 
     const res = await fetch(proxyUrl("/v1/messages"), {
@@ -299,7 +283,6 @@ describe("Cross-provider routing", () => {
   });
 
   test("Anthropic→OpenAI (streaming): SSE uses Anthropic event types", async () => {
-    classifierChar = "L";
     resetState();
     openaiStreamMode = true;
 
@@ -328,7 +311,6 @@ describe("Cross-provider routing", () => {
   });
 
   test("Anthropic→Anthropic (same provider): response piped transparently", async () => {
-    classifierChar = "M";
     resetState();
 
     const res = await fetch(proxyUrl("/v1/messages"), {
@@ -357,7 +339,6 @@ describe("Cross-provider routing", () => {
   });
 
   test("OpenAI→Anthropic: response translated to OpenAI format", async () => {
-    classifierChar = "M";
     resetState();
 
     const res = await fetch(proxyUrl("/v1/chat/completions"), {
@@ -391,7 +372,6 @@ describe("Cross-provider routing", () => {
   });
 
   test("Model field verification: upstream receives correct target model name", async () => {
-    classifierChar = "L";
     resetState();
 
     await fetch(proxyUrl("/v1/messages"), {
@@ -409,7 +389,6 @@ describe("Cross-provider routing", () => {
     const sentModel = lastOpenAIRequest!.body?.model as string;
     expect(sentModel).toBe("gpt-4o-mini");
 
-    classifierChar = "M";
     resetState();
 
     await fetch(proxyUrl("/v1/messages"), {
@@ -427,7 +406,6 @@ describe("Cross-provider routing", () => {
     const sentMediumModel = lastAnthropicRequest!.body?.model as string;
     expect(sentMediumModel).toBe("claude-sonnet-4-20250514");
 
-    classifierChar = "H";
     resetState();
 
     await fetch(proxyUrl("/v1/messages"), {
@@ -444,6 +422,5 @@ describe("Cross-provider routing", () => {
     expect(lastOpenAIRequest).not.toBeNull();
     const sentHeavyModel = lastOpenAIRequest!.body?.model as string;
     expect(sentHeavyModel).toBe("gpt-5.4");
-    classifierChar = "M";
   });
 });

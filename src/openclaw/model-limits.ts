@@ -2,6 +2,7 @@ import { realpath } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import type { OpenClawConfig } from "./types.ts";
 import { lookupContextWindowFromConfig } from "./config-reader.ts";
+import { readFileText, fileExists } from "../utils/runtime.ts";
 
 export const DEFAULT_CONTEXT_TOKENS = 200_000;
 
@@ -85,8 +86,7 @@ async function findOpenClawNodeModulesPath(): Promise<string | undefined> {
     for (let i = 0; i < 10; i++) {
       const candidate = join(dir, "node_modules", "@mariozechner", "pi-ai", "dist", "models.generated.js");
       try {
-        const file = Bun.file(candidate);
-        if (await file.exists()) {
+        if (await fileExists(candidate)) {
           return candidate;
         }
       } catch {
@@ -100,7 +100,7 @@ async function findOpenClawNodeModulesPath(): Promise<string | undefined> {
     // `which openclaw` failed — not installed
   }
 
-  const homeDir = process.env.HOME ?? Bun.env.HOME ?? "/root";
+  const homeDir = process.env.HOME ?? "/root";
   const fallbackPaths = [
     join(homeDir, ".npm-global", "lib", "node_modules", "openclaw", "node_modules", "@mariozechner", "pi-ai", "dist", "models.generated.js"),
     join(homeDir, ".local", "lib", "node_modules", "openclaw", "node_modules", "@mariozechner", "pi-ai", "dist", "models.generated.js"),
@@ -108,8 +108,7 @@ async function findOpenClawNodeModulesPath(): Promise<string | undefined> {
 
   for (const path of fallbackPaths) {
     try {
-      const file = Bun.file(path);
-      if (await file.exists()) {
+      if (await fileExists(path)) {
         return path;
       }
     } catch {
@@ -155,7 +154,7 @@ export async function loadPiAiCatalog(): Promise<PiAiCatalog | undefined> {
   }
 
   try {
-    const source = await Bun.file(filePath).text();
+    const source = await readFileText(filePath);
     const catalog = parseCatalogFromSource(source);
     if (catalog) {
       const providerCount = Object.keys(catalog).length;

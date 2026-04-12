@@ -12,8 +12,6 @@ let mockResponseStatus = 200;
 let mockResponseHeaders: Record<string, string> = { "content-type": "application/json" };
 let mockSseMode = false;
 
-let classifierResponseChar = "M";
-
 beforeAll(() => {
   mockServer = Bun.serve({
     port: 0,
@@ -22,17 +20,6 @@ beforeAll(() => {
       let parsedBody: Record<string, unknown> | null = null;
       if (text) {
         parsedBody = JSON.parse(text);
-      }
-
-      const isClassifierRequest = parsedBody !== null && (parsedBody as Record<string, unknown>).max_tokens === 1;
-      if (isClassifierRequest) {
-        const classifierBody = JSON.stringify({
-          content: [{ type: "text", text: classifierResponseChar }],
-        });
-        return new Response(classifierBody, {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
       }
 
       lastReceivedHeaders = {};
@@ -77,10 +64,6 @@ function makeConfig(overrides?: Partial<ClawMuxConfig["routing"]>): ClawMuxConfi
         LIGHT: "anthropic/claude-3-5-haiku-20241022",
         MEDIUM: "anthropic/claude-sonnet-4-20250514",
         HEAVY: "anthropic/claude-opus-4-20250514",
-      },
-      classifier: {
-        model: "anthropic/claude-3-5-haiku-20241022",
-        timeoutMs: 3000,
       },
       ...overrides,
     },
@@ -190,7 +173,6 @@ describe("handleApiRequest", () => {
   });
 
   it("routes trivial message to LIGHT model", async () => {
-    classifierResponseChar = "L";
     const config = makeConfig({
       models: {
         LIGHT: "anthropic/claude-3-5-haiku-20241022",
@@ -221,11 +203,9 @@ describe("handleApiRequest", () => {
 
     expect(response.status).toBe(200);
     expect(lastReceivedBody?.model).toBe("claude-3-5-haiku-20241022");
-    classifierResponseChar = "M";
   });
 
   it("routes complex message to HEAVY model", async () => {
-    classifierResponseChar = "H";
     const config = makeConfig({
       models: {
         LIGHT: "anthropic/claude-3-5-haiku-20241022",
@@ -269,7 +249,6 @@ describe("handleApiRequest", () => {
 
     expect(response.status).toBe(200);
     expect(lastReceivedBody?.model).toBe("claude-opus-4-20250514");
-    classifierResponseChar = "M";
   });
 
   it("streams SSE response transparently", async () => {

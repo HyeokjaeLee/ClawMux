@@ -99,7 +99,7 @@ function buildCompressedMessages(
   ];
 }
 
-function truncateToFit(
+export function truncateToFit(
   messages: Array<{ role: string; content: unknown }>,
   targetTokens: number,
 ): Array<{ role: string; content: unknown }> {
@@ -156,7 +156,11 @@ export function createCompressionWorker(
     if (activeJobs >= config.maxConcurrent) return;
 
     session.compressionState = "computing";
-    sessionStore.update(session.id, { compressionState: "computing" });
+    session.snapshotIndex = session.messages.length;
+    sessionStore.update(session.id, {
+      compressionState: "computing",
+      snapshotIndex: session.messages.length,
+    });
     activeJobs++;
 
     const targetTokens = config.targetRatio * config.contextWindow;
@@ -229,13 +233,15 @@ export function createCompressionWorker(
     }
 
     const compressed = session.compressedMessages;
-    const recentMessages = session.messages.slice(-3);
+    const snapshotIdx = session.snapshotIndex ?? session.messages.length - 3;
+    const postSnapshotMessages = session.messages.slice(snapshotIdx);
 
-    const combined = [...compressed, ...recentMessages];
+    const combined = [...compressed, ...postSnapshotMessages];
 
     session.compressionState = "idle";
     session.compressedMessages = undefined;
     session.compressedSummary = undefined;
+    session.snapshotIndex = undefined;
 
     return combined;
   }

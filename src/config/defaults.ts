@@ -13,20 +13,6 @@ export const DEFAULT_CONFIG: Required<ClawMuxConfig> = {
       HEAVY: "",
     },
     contextWindows: {},
-    classifier: {
-      mode: "local" as const,
-      model: undefined,
-      timeoutMs: 3000,
-      contextMessages: 10,
-    },
-    scoring: {
-      weights: {},
-      boundaries: {
-        lightMedium: 0.0,
-        mediumHeavy: 0.35,
-      },
-      confidenceThreshold: 0.70,
-    },
   },
   server: {
     port: 3456,
@@ -36,8 +22,6 @@ export const DEFAULT_CONFIG: Required<ClawMuxConfig> = {
 
 export function applyDefaults(partial: ClawMuxConfig): Required<ClawMuxConfig> {
   const defaults = DEFAULT_CONFIG;
-  const ps = partial.routing.scoring;
-  const ds = defaults.routing.scoring!;
 
   return {
     compression: {
@@ -52,20 +36,6 @@ export function applyDefaults(partial: ClawMuxConfig): Required<ClawMuxConfig> {
         HEAVY: partial.routing.models.HEAVY ?? defaults.routing.models.HEAVY,
       },
       contextWindows: { ...defaults.routing.contextWindows, ...partial.routing.contextWindows },
-      classifier: {
-        mode: partial.routing.classifier?.mode ?? defaults.routing.classifier!.mode,
-        model: partial.routing.classifier?.model ?? defaults.routing.classifier!.model,
-        timeoutMs: partial.routing.classifier?.timeoutMs ?? defaults.routing.classifier!.timeoutMs,
-        contextMessages: partial.routing.classifier?.contextMessages ?? defaults.routing.classifier!.contextMessages,
-      },
-      scoring: {
-        weights: { ...ds.weights, ...ps?.weights },
-        boundaries: {
-          lightMedium: ps?.boundaries?.lightMedium ?? ds.boundaries!.lightMedium,
-          mediumHeavy: ps?.boundaries?.mediumHeavy ?? ds.boundaries!.mediumHeavy,
-        },
-        confidenceThreshold: ps?.confidenceThreshold ?? ds.confidenceThreshold,
-      },
     },
     server: {
       port: partial.server?.port ?? defaults.server.port,

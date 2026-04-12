@@ -93,9 +93,6 @@ describe("validateConfig", () => {
       expect(result.config.compression.targetRatio).toBe(0.5);
       expect(result.config.server!.port).toBe(3456);
       expect(result.config.server!.host).toBe("127.0.0.1");
-      expect(result.config.routing.scoring!.confidenceThreshold).toBe(0.70);
-      expect(result.config.routing.scoring!.boundaries!.lightMedium).toBe(0.0);
-      expect(result.config.routing.scoring!.boundaries!.mediumHeavy).toBe(0.35);
     }
   });
 
@@ -118,20 +115,6 @@ describe("validateConfig", () => {
     expect(result.valid).toBe(false);
     if (!result.valid) {
       expect(result.errors.some((e) => e.includes("server.port") && e.includes("1024"))).toBe(true);
-    }
-  });
-
-  it("rejects confidenceThreshold outside 0.0–1.0", () => {
-    const result = validateConfig({
-      ...VALID_CONFIG,
-      routing: {
-        ...VALID_CONFIG.routing,
-        scoring: { confidenceThreshold: 1.5 },
-      },
-    });
-    expect(result.valid).toBe(false);
-    if (!result.valid) {
-      expect(result.errors.some((e) => e.includes("confidenceThreshold") && e.includes("0") && e.includes("1"))).toBe(true);
     }
   });
 

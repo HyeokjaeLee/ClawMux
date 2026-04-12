@@ -269,6 +269,55 @@ describe("createCompressionMiddleware", () => {
     });
   });
 
+  describe("hard ceiling truncation", () => {
+    it("truncates when tokens exceed 90% and compression not ready", () => {
+      const mw = createCompressionMiddleware({
+        ...BASE_CONFIG,
+        resolvedContextWindow: 100,
+        targetRatio: 0.6,
+      });
+
+      const longMessages = Array.from({ length: 30 }, (_, i) => ({
+        role: i % 2 === 0 ? "user" : "assistant",
+        content: `Message ${i} with enough words to push tokens over the hard ceiling limit`,
+      }));
+      const parsed = makeParsed(longMessages as Array<{ role: string; content: string }>);
+
+      const store = mw.getSessionStore();
+      const sessionId = "session-" + String(hashContent(longMessages[0].content));
+      store.set(sessionId, {
+        id: sessionId,
+        messages: longMessages,
+        tokenCount: 95,
+        compressionState: "computing",
+        lastAccess: Date.now(),
+      });
+
+      const result = mw.beforeForward(parsed, adapter);
+
+      expect(result.wasCompressed).toBe(true);
+      expect(result.messages.length).toBeLessThan(longMessages.length);
+    });
+
+    it("does not truncate when tokens are below 90%", () => {
+      const mw = createCompressionMiddleware({
+        ...BASE_CONFIG,
+        resolvedContextWindow: 1000,
+      });
+
+      const messages = [
+        { role: "user", content: "Hello" },
+        { role: "assistant", content: "Hi" },
+      ];
+      const parsed = makeParsed(messages);
+
+      const result = mw.beforeForward(parsed, adapter);
+
+      expect(result.wasCompressed).toBe(false);
+      expect(result.messages).toEqual(messages);
+    });
+  });
+
   describe("session store size limit", () => {
     it("respects maxSessions limit", () => {
       const mw = createCompressionMiddleware({ ...BASE_CONFIG, maxSessions: 3 });

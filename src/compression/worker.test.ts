@@ -95,6 +95,7 @@ describe("CompressionWorker", () => {
       worker.triggerCompression(session, store, apiCall);
 
       expect(session.compressionState).toBe("computing");
+      expect(session.snapshotIndex).toBe(5);
       expect(worker.getStats().activeJobs).toBe(1);
 
       await new Promise((r) => setTimeout(r, 50));
@@ -202,10 +203,19 @@ describe("CompressionWorker", () => {
   });
 
   describe("applyCompression", () => {
-    test("returns combined messages when ready", () => {
+    test("returns summary + post-snapshot messages using snapshotIndex", () => {
       const worker = createCompressionWorker(makeConfig());
+      const messages = [
+        { role: "user", content: "msg-0" },
+        { role: "assistant", content: "msg-1" },
+        { role: "user", content: "msg-2 (at snapshot)" },
+        { role: "assistant", content: "msg-3 (post-snapshot)" },
+        { role: "user", content: "msg-4 (post-snapshot)" },
+      ];
       const session = makeSession({
+        messages,
         compressionState: "ready",
+        snapshotIndex: 3,
         compressedMessages: [
           { role: "user", content: "[Summary of previous conversation]\nSummary text" },
           { role: "assistant", content: "Understood." },
@@ -215,22 +225,69 @@ describe("CompressionWorker", () => {
       const result = worker.applyCompression(session);
 
       expect(result).toBeDefined();
-      expect(result!.length).toBe(5);
+      expect(result!.length).toBe(4);
       expect(result![0].content).toBe("[Summary of previous conversation]\nSummary text");
       expect(result![1].content).toBe("Understood.");
-      expect(result![2]).toEqual(session.messages[2]);
-      expect(result![3]).toEqual(session.messages[3]);
-      expect(result![4]).toEqual(session.messages[4]);
+      expect(result![2]).toEqual(messages[3]);
+      expect(result![3]).toEqual(messages[4]);
     });
 
-    test("resets session state after applying", () => {
+    test("preserves all messages added after compression trigger", () => {
       const worker = createCompressionWorker(makeConfig());
+      const messages = [
+        { role: "user", content: "old-1" },
+        { role: "assistant", content: "old-2" },
+        { role: "user", content: "new-A (post)" },
+        { role: "assistant", content: "new-B (post)" },
+        { role: "user", content: "new-C (post)" },
+        { role: "assistant", content: "new-D (post)" },
+        { role: "user", content: "new-E (post)" },
+      ];
       const session = makeSession({
+        messages,
         compressionState: "ready",
+        snapshotIndex: 2,
         compressedMessages: [
           { role: "user", content: "summary" },
         ],
+      });
+
+      const result = worker.applyCompression(session);
+
+      expect(result).toBeDefined();
+      expect(result!.length).toBe(6);
+      expect(result![0].content).toBe("summary");
+      expect(result![1].content).toBe("new-A (post)");
+      expect(result![5].content).toBe("new-E (post)");
+    });
+
+    test("falls back to last 3 when snapshotIndex is undefined", () => {
+      const worker = createCompressionWorker(makeConfig());
+      const session = makeSession({
+        compressionState: "ready",
+        snapshotIndex: undefined,
+        compressedMessages: [
+          { role: "user", content: "summary" },
+        ],
+      });
+
+      const result = worker.applyCompression(session);
+
+      expect(result).toBeDefined();
+      expect(result!.length).toBe(4);
+      expect(result![0].content).toBe("summary");
+      expect(result![1].content).toBe("How are you?");
+      expect(result![2].content).toBe("I am fine");
+      expect(result![3].content).toBe("Great");
+    });
+
+    test("resets session state and snapshotIndex after applying", () => {
+      const worker = createCompressionWorker(makeConfig());
+      const session = makeSession({
+        compressionState: "ready",
+        compressedMessages: [{ role: "user", content: "summary" }],
         compressedSummary: "summary text",
+        snapshotIndex: 2,
       });
 
       worker.applyCompression(session);
@@ -238,6 +295,7 @@ describe("CompressionWorker", () => {
       expect(session.compressionState).toBe("idle");
       expect(session.compressedMessages).toBeUndefined();
       expect(session.compressedSummary).toBeUndefined();
+      expect(session.snapshotIndex).toBeUndefined();
     });
 
     test("returns undefined when not ready", () => {

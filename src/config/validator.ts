@@ -106,37 +106,6 @@ export function validateConfig(raw: unknown): ValidationResultUnion {
     }
   }
 
-  const classifier = routing.classifier !== undefined && isObject(routing.classifier) ? routing.classifier : null;
-  if (classifier !== null) {
-    if (classifier.mode !== undefined) {
-      const validModes = ["heuristic", "llm", "hybrid", "local"];
-      if (typeof classifier.mode !== "string" || !validModes.includes(classifier.mode as string)) {
-        errors.push(`routing.classifier.mode: must be one of ${validModes.join(", ")}, got "${String(classifier.mode)}"`);
-      }
-    }
-    if (classifier.model !== undefined) {
-      if (requireString(errors, "routing.classifier.model", classifier.model)) {
-        checkProviderModelFormat(errors, "routing.classifier.model", classifier.model as string);
-      }
-    }
-    if (classifier.timeoutMs !== undefined) {
-      checkOptionalNumberRange(errors, "routing.classifier.timeoutMs", classifier.timeoutMs, 500, 10000);
-    }
-    if (classifier.contextMessages !== undefined) {
-      if (requireNumber(errors, "routing.classifier.contextMessages", classifier.contextMessages)) {
-        const n = classifier.contextMessages as number;
-        if (!Number.isInteger(n) || n < 1 || n > 50) {
-          errors.push("routing.classifier.contextMessages: must be a positive integer between 1 and 50, got " + String(n));
-        }
-      }
-    }
-  }
-
-  const scoring = routing.scoring !== undefined && isObject(routing.scoring) ? routing.scoring : null;
-  if (scoring !== null && scoring.confidenceThreshold !== undefined) {
-    checkOptionalNumberRange(errors, "routing.scoring.confidenceThreshold", scoring.confidenceThreshold, 0.0, 1.0);
-  }
-
   const server = obj.server !== undefined && isObject(obj.server) ? obj.server : null;
   if (server !== null && server.port !== undefined) {
     checkOptionalNumberRange(errors, "server.port", server.port, 1024, 65535);

@@ -27,7 +27,7 @@ let upstreamResponseBody = JSON.stringify({
 let upstreamResponseHeaders: Record<string, string> = {
   "content-type": "application/json",
 };
-let classifierChar = "M";
+
 
 let mockUpstream: ReturnType<typeof Bun.serve>;
 let mockUpstreamPort: number;
@@ -63,10 +63,7 @@ function makeClawMuxConfig(): ClawMuxConfig {
         MEDIUM: "anthropic/claude-sonnet-4-20250514",
         HEAVY: "anthropic/claude-opus-4-20250514",
       },
-      classifier: {
-        model: "anthropic/claude-3-5-haiku-20241022",
-        timeoutMs: 3000,
-      },
+
     },
     server: { port: 0, host: "127.0.0.1" },
   };
@@ -121,16 +118,6 @@ beforeAll(() => {
       const text = await req.text();
       if (text) {
         body = JSON.parse(text) as Record<string, unknown>;
-      }
-
-      if (body !== null && body.max_tokens === 1) {
-        const classifierBody = JSON.stringify({
-          content: [{ type: "text", text: classifierChar }],
-        });
-        return new Response(classifierBody, {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
       }
 
       lastUpstreamRequest = { method: req.method, path, headers, body };
@@ -211,7 +198,6 @@ describe("GET /stats", () => {
 
 describe("Anthropic routing", () => {
   test("simple message routes to LIGHT tier — model changed in upstream request", async () => {
-    classifierChar = "L";
     resetUpstream();
 
     const res = await fetch(proxyUrl("/v1/messages"), {
@@ -231,11 +217,9 @@ describe("Anthropic routing", () => {
     expect(typeof sentModel).toBe("string");
     expect(sentModel).not.toBe("claude-opus-4-20250514");
     expect(lastUpstreamRequest!.headers["x-api-key"]).toBe("test-key-anthropic");
-    classifierChar = "M";
   });
 
   test("complex message routes to HEAVY tier", async () => {
-    classifierChar = "H";
     resetUpstream();
 
     const res = await fetch(proxyUrl("/v1/messages"), {
@@ -253,7 +237,6 @@ describe("Anthropic routing", () => {
 
     const sentModel = lastUpstreamRequest!.body?.model as string;
     expect(sentModel).toBe("claude-opus-4-20250514");
-    classifierChar = "M";
   });
 
   test("upstream response is passed through transparently", async () => {
@@ -310,7 +293,6 @@ describe("Anthropic routing", () => {
 
 describe("OpenAI routing", () => {
   test("simple message routes to LIGHT tier — model changed in upstream request", async () => {
-    classifierChar = "L";
     resetUpstream(200, JSON.stringify({
       id: "chatcmpl-test",
       object: "chat.completion",
@@ -343,11 +325,9 @@ describe("OpenAI routing", () => {
       lastUpstreamRequest!.headers["authorization"]?.includes("Bearer") ||
       typeof lastUpstreamRequest!.headers["x-api-key"] === "string";
     expect(hasAuth).toBe(true);
-    classifierChar = "M";
   });
 
   test("complex message routes to HEAVY tier", async () => {
-    classifierChar = "H";
     resetUpstream(200, JSON.stringify({
       id: "chatcmpl-complex",
       object: "chat.completion",
@@ -374,7 +354,6 @@ describe("OpenAI routing", () => {
 
     const sentModel = lastUpstreamRequest!.body?.model as string;
     expect(sentModel).toBe("claude-opus-4-20250514");
-    classifierChar = "M";
   });
 });
 

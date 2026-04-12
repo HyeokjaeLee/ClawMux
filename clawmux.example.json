@@ -19,19 +19,6 @@
       "_comment_contextWindows": "Optional per-model context window overrides (in tokens). Keys use 'provider/model' format.",
       "zai/glm-5": 204800,
       "openai/gpt-5.4": 400000
-    },
-    "_comment_classifier": "Request classifier. 'local' = embedding-based semantic classification (~4ms first run, <1ms cached, default), 'heuristic' = rule-based scoring (<1ms), 'llm' = external LLM classification (1-5s), 'hybrid' = heuristic first with LLM fallback.",
-    "_example_classifier": {
-      "mode": "local"
-    },
-    "scoring": {
-      "boundaries": {
-        "lightMedium": 0.0,
-        "mediumHeavy": 0.35,
-        "_comment_boundaries": "Score thresholds separating routing tiers."
-      },
-      "confidenceThreshold": 0.70,
-      "_comment_confidence": "Minimum confidence (0.0–1.0) to auto-route. Below this, falls back to HEAVY."
     }
   },
   "server": {

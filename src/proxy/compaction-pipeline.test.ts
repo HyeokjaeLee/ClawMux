@@ -6,27 +6,12 @@ import { handleApiRequest } from "./pipeline.ts";
 
 let mockServer: ReturnType<typeof Bun.serve>;
 let mockPort: number;
-let classifierResponseChar = "M";
 let upstreamCalled = false;
 
 beforeAll(() => {
   mockServer = Bun.serve({
     port: 0,
-    fetch: async (req) => {
-      const text = await req.text();
-      let parsedBody: Record<string, unknown> | null = null;
-      if (text) {
-        parsedBody = JSON.parse(text);
-      }
-
-      const isClassifierRequest = parsedBody !== null && (parsedBody as Record<string, unknown>).max_tokens === 1;
-      if (isClassifierRequest) {
-        return new Response(
-          JSON.stringify({ content: [{ type: "text", text: classifierResponseChar }] }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
-
+    fetch: async () => {
       upstreamCalled = true;
       return new Response(
         JSON.stringify({ id: "msg_test", content: [{ type: "text", text: "Hello!" }] }),
@@ -50,7 +35,7 @@ function makeConfig(): ClawMuxConfig {
         MEDIUM: "anthropic/claude-sonnet-4-20250514",
         HEAVY: "anthropic/claude-opus-4-20250514",
       },
-      classifier: { model: "anthropic/claude-3-5-haiku-20241022", timeoutMs: 3000 },
+
     },
   };
 }

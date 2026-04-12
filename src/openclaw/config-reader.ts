@@ -13,7 +13,7 @@ export function resolveEnvVar(value: string): string {
 }
 
 function getHomeDir(): string {
-  return process.env.HOME ?? Bun.env.HOME ?? "/root";
+  return process.env.HOME ?? "/root";
 }
 
 export function getConfigPath(override?: string): string {

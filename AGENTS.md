@@ -1,7 +1,9 @@
 # ClawMux Development Guide
 
 ## Runtime
-- Bun (NOT Node.js) — use `bun run`, `bun test`, `Bun.serve()`
+- Dual runtime: Bun (recommended) and Node.js 18+ supported
+- Production code must NOT use Bun-specific APIs directly — use `src/utils/runtime.ts` abstraction
+- Tests use `bun:test` (Bun-only)
 
 ## Conventions
 - Zero external dependencies
@@ -23,6 +25,7 @@
 - `bun test` — run all tests
 - `bun run dev` — development with watch mode
 - `bun run start` — production start (no watch)
+- `npm run start:node` — Node.js production start (requires tsx)
 
 ## Project Structure
 - `src/adapters/` — API format adapters (anthropic, openai-completions, etc.)
