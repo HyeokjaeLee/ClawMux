@@ -1,6 +1,7 @@
 import type { ClawMuxConfig } from "../config/types.ts";
 import type { OpenClawConfig, AuthProfile } from "../openclaw/types.ts";
-import type { AuthInfo } from "../adapters/types.ts";
+import type { ApiAdapter, AuthInfo } from "../adapters/types.ts";
+import type { ParsedResponse } from "../adapters/response-types.ts";
 import type { CompressionMiddleware } from "./compression-integration.ts";
 import type { PiAiCatalog } from "../openclaw/model-limits.ts";
 import { getAdapter, registerAdapter } from "../adapters/registry.ts";
@@ -10,6 +11,7 @@ import "../adapters/openai-responses.ts";
 import "../adapters/google.ts";
 import "../adapters/ollama.ts";
 import "../adapters/bedrock.ts";
+import "../adapters/openai-codex.ts";
 import { detectCompaction } from "../compression/compaction-detector.ts";
 import { buildSyntheticSummaryResponse, buildSyntheticHttpResponse } from "../compression/synthetic-response.ts";
 import type { Message, RoutingDecision, ClassificationResult } from "../routing/types.ts";
@@ -21,6 +23,52 @@ import { createCompressionMiddleware } from "./compression-integration.ts";
 import { resolveCompressionContextWindow, resolveContextWindow, DEFAULT_CONTEXT_TOKENS } from "../openclaw/model-limits.ts";
 
 registerAdapter(new AnthropicAdapter());
+
+async function collectCodexStream(
+  sourceAdapter: ApiAdapter,
+  response: Response,
+): Promise<ParsedResponse> {
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let id = "";
+  let model = "";
+  const textParts: string[] = [];
+  let usage: { inputTokens: number; outputTokens: number } | undefined;
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let idx: number;
+    while ((idx = buffer.indexOf("\n\n")) !== -1) {
+      const frame = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 2);
+      if (!frame.trim() || !sourceAdapter.parseStreamChunk) continue;
+
+      for (const event of sourceAdapter.parseStreamChunk(frame)) {
+        if (event.type === "message_start") {
+          id = event.id ?? "";
+          model = event.model ?? "";
+        } else if (event.type === "content_delta") {
+          textParts.push(event.text ?? "");
+        } else if (event.type === "message_stop" && event.usage) {
+          usage = event.usage;
+        }
+      }
+    }
+  }
+
+  return {
+    id,
+    model,
+    content: textParts.join(""),
+    role: "assistant",
+    stopReason: "completed",
+    usage,
+  };
+}
 
 interface ProviderLookupResult {
   providerName: string;
@@ -172,6 +220,19 @@ export async function handleApiRequest(
 
   if (compressionMiddleware && upstreamResponse.ok) {
     compressionMiddleware.afterResponse(parsed, adapter, baseUrl, authInfo);
+  }
+
+  const isCodexUpstream = targetApiType === "openai-codex-responses";
+  if (isCodexUpstream && upstreamResponse.ok && upstreamResponse.body) {
+    if (effectiveParsed.stream) {
+      return translateResponse(requestAdapter, adapter, upstreamResponse, true);
+    }
+    const collected = await collectCodexStream(requestAdapter, upstreamResponse);
+    const translated = adapter.buildResponse!(collected);
+    return new Response(JSON.stringify(translated), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
   }
 
   if (targetAdapter && upstreamResponse.ok) {

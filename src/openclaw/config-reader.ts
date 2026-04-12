@@ -63,13 +63,22 @@ export async function readAuthProfiles(agentId?: string, profilesPath?: string):
     if (Array.isArray(parsed)) return parsed as AuthProfile[];
 
     if (parsed && typeof parsed === "object" && parsed.profiles) {
-      return Object.entries(parsed.profiles as Record<string, Record<string, unknown>>).map(
-        ([key, profile]) => ({
+      return Object.entries(parsed.profiles as Record<string, Record<string, unknown>>)
+        .map(([key, profile]) => ({
           provider: (profile.provider as string) ?? key.split(":")[0],
           apiKey: (profile.access as string) ?? (profile.apiKey as string),
           token: (profile.token as string),
-        }),
-      );
+        }))
+        .filter((p) => {
+          const token = p.apiKey ?? p.token;
+          if (!token || !token.includes(".")) return true;
+          try {
+            const payload = token.split(".")[1];
+            const decoded = JSON.parse(Buffer.from(payload, "base64").toString());
+            if (decoded.exp && decoded.exp * 1000 < Date.now()) return false;
+          } catch (_) { void _; return true; }
+          return true;
+        });
     }
 
     return [];
