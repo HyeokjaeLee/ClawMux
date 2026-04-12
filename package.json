@@ -1,19 +1,49 @@
 {
   "name": "clawmux",
   "version": "0.1.0",
-  "devDependencies": {
-    "@types/bun": "^1.3.11"
+  "description": "Smart model routing + context compression proxy for OpenClaw",
+  "type": "module",
+  "bin": {
+    "clawmux": "./bin/clawmux.cjs"
+  },
+  "files": [
+    "bin/",
+    "dist/",
+    "clawmux.example.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
   },
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
     "start:node": "node --import tsx src/index.ts",
     "test": "bun test",
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build": "bun build src/cli.ts --outfile dist/cli.cjs --target node --format cjs --external @huggingface/transformers && bun build src/index.ts --outfile dist/index.cjs --target node --format cjs --external @huggingface/transformers",
+    "build:check": "node dist/cli.cjs version",
+    "prepublishOnly": "npm run typecheck && npm run build && npm run build:check"
   },
-  "type": "module",
   "dependencies": {
     "@huggingface/transformers": "^3"
-  }
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.11"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nagle-app/ClawMux.git"
+  },
+  "keywords": [
+    "llm",
+    "proxy",
+    "routing",
+    "compression",
+    "openclaw",
+    "ai",
+    "model-router"
+  ],
+  "license": "MIT"
 }
