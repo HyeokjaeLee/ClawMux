@@ -15,6 +15,10 @@
       "HEAVY": "anthropic/claude-opus-4-20250514",
       "_comment_models": "Model IDs in 'provider/model' format for each routing tier. Do NOT use provider names starting with 'clawmux-' — this causes infinite loops."
     },
+    "scoring": {
+      "confidenceThreshold": 0.7,
+      "_comment_confidenceThreshold": "Classification confidence below this threshold triggers a fallback to MEDIUM tier (range: 0.0–1.0)."
+    },
     "contextWindows": {
       "_comment_contextWindows": "Optional per-model context window overrides (in tokens). Keys use 'provider/model' format.",
       "zai/glm-5": 204800,

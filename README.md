@@ -63,6 +63,9 @@ Copy `clawmux.example.json` to `clawmux.json` and adjust as needed:
       "MEDIUM": "anthropic/claude-sonnet-4-20250514",
       "HEAVY": "anthropic/claude-opus-4-20250514"
       // Model IDs use 'provider/model' format. Do NOT use provider names starting with "clawmux-" — causes infinite loops
+    },
+    "scoring": {
+      "confidenceThreshold": 0.7  // classification confidence below this → fallback to MEDIUM tier
     }
   },
   "server": {
@@ -123,6 +126,8 @@ OpenClaw → ClawMux Proxy (localhost:3456) → Upstream Provider(s)
 ```
 
 **Routing tiers** map to model IDs you configure. A local embedding model (`Xenova/paraphrase-multilingual-MiniLM-L12-v2`) classifies the semantic complexity of each request using nearest-centroid classification (~4ms first run, <1ms cached), supporting both Korean and English. Short queries are detected by a lightweight heuristic and routed to LIGHT tier directly. No external API calls are needed for classification.
+
+**Low confidence fallback**: When the classifier's confidence falls below `confidenceThreshold` (default 0.7), the request is routed to MEDIUM tier regardless of the computed score. This prevents unreliable classifications from sending requests to an inappropriate tier — MEDIUM provides a safe cost/quality balance compared to risking unnecessary cost (HEAVY) or degraded quality (LIGHT).
 
 **Context compression** runs in the background after each response. When the conversation approaches the configured threshold, ClawMux summarizes older messages before the next request goes out. This keeps costs down on long conversations without interrupting the flow.
 
