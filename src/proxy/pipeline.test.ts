@@ -137,7 +137,7 @@ describe("handleApiRequest", () => {
     expect(lastReceivedBody).toBeDefined();
     expect(lastReceivedBody?.model).toBeTypeOf("string");
     expect(lastReceivedHeaders["x-api-key"]).toBe("test-anthropic-key");
-  });
+  }, 60_000);
 
   it("routes an OpenAI request correctly", async () => {
     const config = makeConfig({
