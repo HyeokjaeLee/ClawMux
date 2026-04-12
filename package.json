@@ -1,6 +1,6 @@
 {
   "name": "clawmux",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Smart model routing + context compression proxy for OpenClaw",
   "type": "module",
   "bin": {
