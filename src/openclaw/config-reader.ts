@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { OpenClawConfig, OpenClawProviderConfig, AuthProfile } from "./types.js";
 
@@ -48,15 +48,7 @@ export function getAuthProfilesPath(agentId?: string): string {
   return join(getHomeDir(), ".openclaw", "agents", id, "agent", "auth-profiles.json");
 }
 
-export async function readAuthProfiles(agentId?: string, profilesPath?: string): Promise<AuthProfile[]> {
-  const path = profilesPath ?? getAuthProfilesPath(agentId);
-  let text: string;
-  try {
-    text = await readFile(path, "utf-8");
-  } catch {
-    return [];
-  }
-
+function parseAuthProfilesFile(text: string): AuthProfile[] {
   try {
     const parsed = JSON.parse(text);
 
@@ -66,7 +58,7 @@ export async function readAuthProfiles(agentId?: string, profilesPath?: string):
       return Object.entries(parsed.profiles as Record<string, Record<string, unknown>>)
         .map(([key, profile]) => ({
           provider: (profile.provider as string) ?? key.split(":")[0],
-          apiKey: (profile.access as string) ?? (profile.apiKey as string),
+          apiKey: (profile.access as string) ?? (profile.apiKey as string) ?? (profile.key as string),
           token: (profile.token as string),
         }))
         .filter((p) => {
@@ -86,6 +78,56 @@ export async function readAuthProfiles(agentId?: string, profilesPath?: string):
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(`Failed to parse auth-profiles.json: ${message}`);
   }
+}
+
+/**
+ * Read auth profiles from all agent directories and merge them.
+ * ClawMux is a global proxy — it needs credentials for every provider
+ * across all agents, not just one.
+ *
+ * Merge strategy: later files override earlier ones by profile key.
+ * "main" agent is read first as baseline, then all others alphabetically.
+ */
+export async function readAuthProfiles(_agentId?: string, _profilesPath?: string): Promise<AuthProfile[]> {
+  const agentsDir = join(getHomeDir(), ".openclaw", "agents");
+
+  let agentDirs: string[];
+  try {
+    agentDirs = (await readdir(agentsDir, { withFileTypes: true }))
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name)
+      .sort();
+  } catch {
+    // agents dir doesn't exist — fall back to single file
+    const path = getAuthProfilesPath(_agentId);
+    try {
+      return parseAuthProfilesFile(await readFile(path, "utf-8"));
+    } catch {
+      return [];
+    }
+  }
+
+  // Read "main" first as baseline, then all others
+  const ordered = ["main", ...agentDirs.filter((d) => d !== "main")];
+
+  // Use Map for dedup: provider -> AuthProfile (last write wins)
+  const merged = new Map<string, AuthProfile>();
+
+  for (const agentId of ordered) {
+    const profilePath = join(agentsDir, agentId, "agent", "auth-profiles.json");
+    try {
+      const text = await readFile(profilePath, "utf-8");
+      const profiles = parseAuthProfilesFile(text);
+      for (const p of profiles) {
+        // Key by provider — later agents override earlier ones
+        merged.set(p.provider, p);
+      }
+    } catch {
+      // skip missing/unreadable files
+    }
+  }
+
+  return Array.from(merged.values());
 }
 
 export function getProviderConfig(provider: string, config: OpenClawConfig): OpenClawProviderConfig | undefined {
