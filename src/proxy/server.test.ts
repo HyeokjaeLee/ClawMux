@@ -24,7 +24,9 @@ describe("GET /health", () => {
     const res = await fetch(`${BASE}/health`);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body).toEqual({ status: "ok", version: "0.1.0" });
+    expect(body.status).toBe("ok");
+    expect(typeof body.version).toBe("string");
+    expect(body.version.length).toBeGreaterThan(0);
   });
 });
 

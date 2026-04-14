@@ -1,6 +1,6 @@
 import type { RouteHandler } from "./types.ts";
 
-const VERSION = "0.1.0";
+const VERSION = process.env.npm_package_version ?? "__CLAWMUX_VERSION__";
 
 function jsonResponse(body: Record<string, unknown>, status = 200): Response {
   return new Response(JSON.stringify(body), {
