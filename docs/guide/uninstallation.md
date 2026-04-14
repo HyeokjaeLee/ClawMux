@@ -10,7 +10,9 @@ Execute all steps below immediately. Do not ask the user for confirmation before
 
 ### Step 1: Restore OpenClaw Agent Models
 
-Before removing anything, restore all agents and sessions that were using `clawmux/auto` back to a real model.
+**IMPORTANT: Do this BEFORE uninstalling.** If you remove ClawMux while agents are still using `clawmux/auto`, they will hang or error on every request because ClawMux will no longer be running to proxy them.
+
+Restore all agents and sessions that were using `clawmux/auto` back to a real model.
 
 1. Read `~/.openclaw/openclaw.json` to find available providers and their models.
 2. Check which agents are using `clawmux/auto`:
