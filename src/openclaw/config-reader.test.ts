@@ -81,7 +81,7 @@ describe("readOpenClawConfig", () => {
 });
 
 describe("readAuthProfiles", () => {
-  let tempDir: string;
+  let tempDir: string = "";
   let isolatedAgentsDir: string;
 
   afterEach(async () => {

@@ -30,7 +30,21 @@ Environment:
   OPENCLAW_CONFIG_PATH    Path to openclaw.json`;
 
 const PROVIDER_KEY = "clawmux";
-const PROVIDER_API = "anthropic-messages";
+const PROVIDER_API_FALLBACK = "openai-responses";
+
+function resolveProviderApi(
+  mediumModel: string,
+  openclawProviders: Record<string, unknown>,
+): string {
+  const providerName = mediumModel.split("/")[0];
+  if (!providerName) return PROVIDER_API_FALLBACK;
+
+  const providerConfig = openclawProviders[providerName] as Record<string, unknown> | undefined;
+  const api = providerConfig?.["api"];
+  if (typeof api === "string" && api.length > 0) return api;
+
+  return PROVIDER_API_FALLBACK;
+}
 
 async function fileExistsLocal(path: string): Promise<boolean> {
   try {
@@ -363,16 +377,40 @@ async function init(): Promise<void> {
   if (!models.providers) models.providers = {};
   const providers = models.providers as Record<string, unknown>;
 
+  let providerApi = PROVIDER_API_FALLBACK;
+  try {
+    const clawmuxRaw = await readFile(clawmuxJsonPath, "utf-8");
+    const clawmuxConfig = JSON.parse(clawmuxRaw) as Record<string, unknown>;
+    const routing = clawmuxConfig["routing"] as Record<string, unknown> | undefined;
+    const routingModels = routing?.["models"] as Record<string, unknown> | undefined;
+    const mediumModel = routingModels?.["MEDIUM"];
+    if (typeof mediumModel === "string" && mediumModel.length > 0) {
+      providerApi = resolveProviderApi(mediumModel, providers);
+      console.log(`[info] MEDIUM model: ${mediumModel} → provider api: ${providerApi}`);
+    } else {
+      console.log(`[info] MEDIUM model not configured yet, using default api: ${providerApi}`);
+    }
+  } catch {
+    console.log(`[info] clawmux.json not readable, using default api: ${providerApi}`);
+  }
+
   if (providers[PROVIDER_KEY]) {
-    console.log(`  skip  ${PROVIDER_KEY} (already exists)`);
+    const existing = providers[PROVIDER_KEY] as Record<string, unknown>;
+    if (existing["api"] !== providerApi) {
+      existing["api"] = providerApi;
+      await writeFile(openclawConfigPath, JSON.stringify(config, null, 2) + "\n");
+      console.log(`  updated ${PROVIDER_KEY} provider api → ${providerApi}`);
+    } else {
+      console.log(`  skip  ${PROVIDER_KEY} (already exists, api=${providerApi})`);
+    }
   } else {
     providers[PROVIDER_KEY] = {
       baseUrl: "http://localhost:3456",
-      api: PROVIDER_API,
+      api: providerApi,
       models: [{ id: "auto", name: "ClawMux Auto Router" }],
     };
     await writeFile(openclawConfigPath, JSON.stringify(config, null, 2) + "\n");
-    console.log(`  added ${PROVIDER_KEY} provider to openclaw.json`);
+    console.log(`  added ${PROVIDER_KEY} provider to openclaw.json (api=${providerApi})`);
   }
 
   const port = process.env.CLAWMUX_PORT ?? "3456";

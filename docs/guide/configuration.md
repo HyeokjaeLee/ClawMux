@@ -69,7 +69,19 @@ Example for cross-provider:
 }
 ```
 
-### Step 4: Verify
+### Step 4: Sync OpenClaw Provider Format
+
+After writing `clawmux.json`, run `clawmux init` again to update the OpenClaw provider registration:
+
+```bash
+clawmux init
+```
+
+This re-reads the MEDIUM model from `clawmux.json`, looks up its provider's API format in `openclaw.json`, and updates the `clawmux` provider's `api` field accordingly. This ensures OpenClaw sends requests in the correct format for the MEDIUM tier — minimizing unnecessary format translation.
+
+**Always re-run `clawmux init` whenever you change the MEDIUM model in `clawmux.json`.**
+
+### Step 5: Verify
 
 ```bash
 curl -s http://localhost:3456/health
@@ -107,7 +119,15 @@ ClawMux is configured via `clawmux.json`. Changes are watched and applied withou
 }
 ```
 
-Select a ClawMux provider in OpenClaw and verify routing works:
+After editing `clawmux.json`, re-run `clawmux init` to sync the OpenClaw provider registration:
+
+```bash
+clawmux init
+```
+
+This updates the `api` format field in your `openclaw.json` to match the MEDIUM model's provider, reducing unnecessary format translation. Re-run this whenever you change the MEDIUM model.
+
+Then select the ClawMux provider and verify routing:
 
 ```bash
 openclaw provider clawmux
