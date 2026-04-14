@@ -432,7 +432,8 @@ async function init(): Promise<void> {
     console.log("  2. ClawMux is running and will auto-start on boot");
     console.log("     Check status: clawmux status");
   }
-  console.log("  3. Select a provider: openclaw provider clawmux-openai");
+  console.log("  3. Ask the user whether to switch agent and session models to clawmux/auto,");
+  console.log("     then use the openclaw CLI to apply their choice per agent.");
   console.log("  4. Start chatting: openclaw chat");
 }
 

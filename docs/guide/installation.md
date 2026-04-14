@@ -92,6 +92,14 @@ openclaw chat
 
 Send a simple message like "hi" — it should route to the LIGHT model. Send a complex question — it should route to HEAVY.
 
+### Step 7: Switch Agent and Session Models (optional)
+
+Ask the user:
+
+> ClawMux is now running. Would you like to switch your agents and active sessions to use `clawmux/auto` as the default model?
+
+If yes, use the openclaw CLI to update the model for each agent and session the user wants to switch. Apply only what the user confirms — do not change agents the user wants to keep on their current model.
+
 Setup is complete.
 
 ## CLI Reference
