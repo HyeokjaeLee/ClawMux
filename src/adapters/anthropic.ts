@@ -39,15 +39,6 @@ export class AnthropicAdapter implements ApiAdapter {
       "content-type": "application/json",
     };
 
-    let bodyObj: Record<string, unknown> = {
-      ...parsed.rawBody,
-      model: targetModel,
-    };
-
-    if (bodyObj.tools) {
-      bodyObj.tools = toAnthropicTools(bodyObj.tools);
-    }
-
     const isHaiku = targetModel.toLowerCase().includes("haiku");
     const hasThinking = "thinking" in parsed.rawBody;
 
@@ -55,9 +46,39 @@ export class AnthropicAdapter implements ApiAdapter {
       headers["anthropic-beta"] = "interleaved-thinking-2025-05-14";
     }
 
-    if (isHaiku && "thinking" in bodyObj) {
-      const { thinking: _, ...rest } = bodyObj;
-      bodyObj = rest;
+    const ANTHROPIC_SAMPLING_KEYS = [
+      "temperature", "top_p", "top_k", "stop_sequences",
+      "metadata", "service_tier",
+    ] as const;
+
+    const samplingParams: Record<string, unknown> = {};
+    for (const key of ANTHROPIC_SAMPLING_KEYS) {
+      if (key in parsed.rawBody) {
+        samplingParams[key] = parsed.rawBody[key];
+      }
+    }
+
+    let bodyObj: Record<string, unknown> = {
+      model: targetModel,
+      messages: parsed.messages,
+      stream: parsed.stream,
+      ...samplingParams,
+    };
+
+    if (parsed.system !== undefined) {
+      bodyObj.system = parsed.system;
+    }
+
+    if (parsed.maxTokens !== undefined) {
+      bodyObj.max_tokens = parsed.maxTokens;
+    }
+
+    if (parsed.rawBody.tools) {
+      bodyObj.tools = toAnthropicTools(parsed.rawBody.tools);
+    }
+
+    if (!isHaiku && hasThinking) {
+      bodyObj.thinking = parsed.rawBody.thinking;
     }
 
     return {

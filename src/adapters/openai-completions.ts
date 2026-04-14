@@ -22,14 +22,39 @@ class OpenAICompletionsAdapter implements ApiAdapter {
     baseUrl: string,
     auth: AuthInfo,
   ): UpstreamRequest {
-    const { rawBody } = parsed;
+    const messages: Array<{ role: string; content: unknown }> = [];
+
+    if (parsed.system !== undefined) {
+      messages.push({ role: "system", content: parsed.system });
+    }
+    messages.push(...parsed.messages);
+
+    const OPENAI_SAMPLING_KEYS = [
+      "temperature", "top_p", "frequency_penalty", "presence_penalty",
+      "logprobs", "top_logprobs", "seed", "stop", "n", "logit_bias",
+      "response_format", "reasoning_effort",
+    ] as const;
+
+    const samplingParams: Record<string, unknown> = {};
+    for (const key of OPENAI_SAMPLING_KEYS) {
+      if (key in parsed.rawBody) {
+        samplingParams[key] = parsed.rawBody[key];
+      }
+    }
+
     const upstreamBody: Record<string, unknown> = {
-      ...rawBody,
       model: targetModel,
+      messages,
+      stream: parsed.stream,
+      ...samplingParams,
     };
 
-    if (upstreamBody.tools) {
-      upstreamBody.tools = toOpenAITools(upstreamBody.tools);
+    if (parsed.maxTokens !== undefined) {
+      upstreamBody.max_tokens = parsed.maxTokens;
+    }
+
+    if (parsed.rawBody.tools) {
+      upstreamBody.tools = toOpenAITools(parsed.rawBody.tools);
     }
 
     return {

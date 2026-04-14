@@ -22,14 +22,38 @@ class OpenAIResponsesAdapter implements ApiAdapter {
     baseUrl: string,
     auth: AuthInfo,
   ): UpstreamRequest {
-    const { rawBody } = parsed;
+    const input: Array<{ role: string; content: unknown }> = [];
+
+    if (parsed.system !== undefined) {
+      input.push({ role: "system", content: parsed.system });
+    }
+    input.push(...parsed.messages);
+
+    const OPENAI_RESPONSES_SAMPLING_KEYS = [
+      "temperature", "top_p", "truncation", "reasoning", "reasoning_effort",
+      "text", "metadata", "store", "include",
+    ] as const;
+
+    const samplingParams: Record<string, unknown> = {};
+    for (const key of OPENAI_RESPONSES_SAMPLING_KEYS) {
+      if (key in parsed.rawBody) {
+        samplingParams[key] = parsed.rawBody[key];
+      }
+    }
+
     const upstreamBody: Record<string, unknown> = {
-      ...rawBody,
       model: targetModel,
+      input,
+      stream: parsed.stream,
+      ...samplingParams,
     };
 
-    if (upstreamBody.tools) {
-      upstreamBody.tools = toOpenAITools(upstreamBody.tools);
+    if (parsed.maxTokens !== undefined) {
+      upstreamBody.max_output_tokens = parsed.maxTokens;
+    }
+
+    if (parsed.rawBody.tools) {
+      upstreamBody.tools = toOpenAITools(parsed.rawBody.tools);
     }
 
     return {
