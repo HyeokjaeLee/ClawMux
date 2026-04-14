@@ -45,8 +45,8 @@ function checkProviderModelFormat(errors: string[], path: string, model: string)
     errors.push(`${path} must be in 'provider/model' format (e.g., 'anthropic/claude-sonnet-4-20250514')`);
     return;
   }
-  const providerName = model.split("/", 2)[0];
-  if (providerName.toLowerCase().startsWith("clawmux-")) {
+  const providerName = model.split("/", 2)[0].toLowerCase();
+  if (providerName === "clawmux" || providerName.startsWith("clawmux-")) {
     errors.push(`Self-referencing model detected: ${model}. This would cause an infinite routing loop.`);
   }
 }

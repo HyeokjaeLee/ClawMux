@@ -103,6 +103,24 @@ function jsonErrorResponse(message: string, status: number): Response {
   });
 }
 
+function upstreamErrorResponse(
+  apiType: string,
+  status: number,
+  upstreamBody: string,
+): Response {
+  if (apiType === "anthropic-messages") {
+    const body = JSON.stringify({
+      type: "error",
+      error: { type: "api_error", message: `Upstream error ${status}: ${upstreamBody.slice(0, 200)}` },
+    });
+    return new Response(body, { status, headers: { "content-type": "application/json" } });
+  }
+  const body = JSON.stringify({
+    error: { message: `Upstream error ${status}: ${upstreamBody.slice(0, 200)}`, type: "upstream_error", code: status },
+  });
+  return new Response(body, { status, headers: { "content-type": "application/json" } });
+}
+
 export async function handleApiRequest(
   req: Request,
   body: unknown,
@@ -246,7 +264,15 @@ export async function handleApiRequest(
     });
   }
 
-  if (targetAdapter && upstreamResponse.ok) {
+  if (!upstreamResponse.ok) {
+    const errorBody = await upstreamResponse.text();
+    console.error(
+      `[clawmux] Upstream error ${upstreamResponse.status} from ${decision.model}: ${errorBody.slice(0, 200)}`,
+    );
+    return upstreamErrorResponse(apiType, upstreamResponse.status, errorBody);
+  }
+
+  if (targetAdapter) {
     return translateResponse(targetAdapter, adapter, upstreamResponse, effectiveParsed.stream);
   }
 

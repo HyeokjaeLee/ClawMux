@@ -61,6 +61,23 @@ describe("validateConfig", () => {
     }
   });
 
+  it("detects self-referencing model with bare 'clawmux' provider", () => {
+    const result = validateConfig({
+      ...VALID_CONFIG,
+      routing: {
+        models: {
+          LIGHT: "clawmux/auto",
+          MEDIUM: "anthropic/claude-sonnet-4-20250514",
+          HEAVY: "anthropic/claude-opus-4-20250514",
+        },
+      },
+    });
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.errors.some((e) => e.includes("clawmux/auto") && e.includes("infinite"))).toBe(true);
+    }
+  });
+
   it("lists all required fields when config is empty", () => {
     const result = validateConfig({});
     expect(result.valid).toBe(false);

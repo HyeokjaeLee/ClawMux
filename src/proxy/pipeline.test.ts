@@ -342,7 +342,7 @@ describe("handleApiRequest", () => {
     expect(json.error).toContain("Unknown API type");
   });
 
-  it("pipes upstream non-2xx responses as-is", async () => {
+  it("wraps upstream non-2xx responses in inbound format", async () => {
     const config = makeConfig();
     const openclawConfig = makeOpenClawConfig(`http://localhost:${mockPort}`);
     const authProfiles = makeAuthProfiles();
@@ -366,8 +366,10 @@ describe("handleApiRequest", () => {
     );
 
     expect(response.status).toBe(429);
-    const json = await response.json();
-    expect(json.error.type).toBe("rate_limit_error");
+    const json = await response.json() as { type: string; error: { type: string; message: string } };
+    expect(json.type).toBe("error");
+    expect(json.error.type).toBe("api_error");
+    expect(json.error.message).toContain("429");
 
     mockResponseStatus = 200;
     mockResponseBody = '{"id":"msg_test","content":[{"type":"text","text":"Hello!"}]}';
