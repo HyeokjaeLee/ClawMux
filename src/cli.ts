@@ -5,6 +5,7 @@ import { execSync } from "node:child_process";
 import { platform } from "node:os";
 import { bootstrap } from "./index.ts";
 import { initLogger, getLogDir } from "./utils/logger.ts";
+import { getClawmuxConfigPath } from "./config/loader.ts";
 
 const VERSION = process.env.npm_package_version ?? "__CLAWMUX_VERSION__";
 const SERVICE_NAME = "clawmux";
@@ -352,8 +353,10 @@ async function init(): Promise<void> {
   await copyFile(openclawConfigPath, backupPath);
   console.log(`[info] Backup created: ${backupPath}`);
 
-  const clawmuxJsonPath = join(process.cwd(), "clawmux.json");
+  const clawmuxJsonPath = getClawmuxConfigPath();
   const examplePath = join(process.cwd(), "clawmux.example.json");
+
+  console.log(`[info] Using ClawMux config: ${clawmuxJsonPath}`);
 
   if (!(await fileExistsLocal(clawmuxJsonPath))) {
     if (await fileExistsLocal(examplePath)) {
@@ -422,7 +425,7 @@ async function init(): Promise<void> {
 
   console.log("\n[info] ClawMux setup complete!");
   console.log("\nNext steps:");
-  console.log("  1. Edit clawmux.json to configure your models");
+  console.log(`  1. Edit ${clawmuxJsonPath} to configure your models`);
   if (noService) {
     console.log("  2. Run: clawmux start");
   } else {

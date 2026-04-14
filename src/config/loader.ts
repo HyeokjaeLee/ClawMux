@@ -1,14 +1,20 @@
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { resolve, join } from "node:path";
 import { validateConfig } from "./validator.ts";
 import type { ValidationResultUnion } from "./types.ts";
 
-function findConfigPath(): string {
+function getHomeDir(): string {
+  return process.env.HOME ?? "/root";
+}
+
+export function getClawmuxConfigPath(): string {
   const envPath = process.env.CLAWMUX_CONFIG;
-  if (envPath) {
-    return resolve(envPath);
-  }
-  return resolve(process.cwd(), "clawmux.json");
+  if (envPath) return resolve(envPath);
+  return join(getHomeDir(), ".openclaw", "clawmux.json");
+}
+
+function findConfigPath(): string {
+  return getClawmuxConfigPath();
 }
 
 export async function loadConfig(configPath?: string): Promise<ValidationResultUnion> {

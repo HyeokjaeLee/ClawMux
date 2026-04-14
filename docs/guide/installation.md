@@ -16,7 +16,7 @@ npx clawmux init   # Node.js
 bunx clawmux init  # Bun (faster)
 ```
 
-Then edit `clawmux.json` to configure your models. See the [Configuration Guide](./configuration.md).
+Then edit `~/.openclaw/clawmux.json` to configure your models. See the [Configuration Guide](./configuration.md).
 
 ## For LLM Agents
 
@@ -60,7 +60,7 @@ npx clawmux init
 
 This will:
 1. Detect OpenClaw config at `~/.openclaw/openclaw.json`
-2. Create `clawmux.json` from the default template
+2. Create `~/.openclaw/clawmux.json` from the default template
 3. Register `clawmux` provider in OpenClaw config
 4. Install a system service for auto-start on boot (systemd on Linux, launchd on macOS)
 
@@ -74,7 +74,7 @@ Expected output: service is active/running. If the service failed, check logs an
 
 ### Step 4: Configure Models
 
-This is the critical step. `clawmux.json` has a default template but needs real model IDs.
+This is the critical step. `~/.openclaw/clawmux.json` has a default template but needs real model IDs.
 
 **Fetch and follow the configuration guide:**
 
@@ -85,7 +85,7 @@ curl -fsSL https://raw.githubusercontent.com/HyeokjaeLee/ClawMux/refs/heads/main
 The configuration guide will instruct you to:
 1. Read `~/.openclaw/openclaw.json` to discover the user's available providers and models
 2. Ask the user which models to assign to LIGHT / MEDIUM / HEAVY tiers
-3. Write the model mapping to `clawmux.json`
+3. Write the model mapping to `~/.openclaw/clawmux.json`
 4. Verify routing works
 
 **Do not skip this step.** Without model configuration, ClawMux cannot route requests.
@@ -164,7 +164,7 @@ To update:
 clawmux update
 ```
 
-This will download the latest version and restart the system service. Config (`clawmux.json`) is preserved.
+This will download the latest version and restart the system service. Config (`~/.openclaw/clawmux.json`) is preserved.
 
 ### For LLM Agents
 

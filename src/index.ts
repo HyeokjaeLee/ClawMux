@@ -1,16 +1,13 @@
 import { createServer } from "./proxy/server.ts";
-import { loadConfig } from "./config/loader.ts";
+import { loadConfig, getClawmuxConfigPath } from "./config/loader.ts";
 import { createConfigWatcher } from "./config/watcher.ts";
 import { readOpenClawConfig, readAuthProfiles } from "./openclaw/config-reader.ts";
 import { loadPiAiCatalog } from "./openclaw/model-limits.ts";
 import { setupPipelineRoutes, createResolvedCompressionMiddleware } from "./proxy/pipeline.ts";
 import { clearCustomHandlers } from "./proxy/router.ts";
-import { resolve } from "node:path";
 
 export async function bootstrap(portOverride?: number): Promise<void> {
-  const configPath = process.env.CLAWMUX_CONFIG
-    ? resolve(process.env.CLAWMUX_CONFIG)
-    : resolve(process.cwd(), "clawmux.json");
+  const configPath = getClawmuxConfigPath();
 
   const result = await loadConfig(configPath);
   if (!result.valid) {

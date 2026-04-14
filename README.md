@@ -17,12 +17,19 @@ Smart model routing + context compression proxy for OpenClaw.
 Copy and paste this into your OpenClaw agent:
 
 ```bash
+Install and configure oh-my-opencode by following the instructions here:
 curl -s https://raw.githubusercontent.com/HyeokjaeLee/ClawMux/refs/heads/main/docs/guide/installation.md
 ```
 
 ## Configuration
 
-Copy `clawmux.example.json` to `clawmux.json` and adjust as needed:
+ClawMux stores its config at `~/.openclaw/clawmux.json` (next to `openclaw.json`). `clawmux init` creates it automatically. You can also copy `clawmux.example.json` as a starting point:
+
+```bash
+cp clawmux.example.json ~/.openclaw/clawmux.json
+```
+
+Adjust as needed:
 
 ```jsonc
 {
@@ -46,7 +53,7 @@ Copy `clawmux.example.json` to `clawmux.json` and adjust as needed:
 }
 ```
 
-Config is watched for changes. Edit `clawmux.json` while the proxy is running and it reloads automatically.
+Config is watched for changes. Edit `~/.openclaw/clawmux.json` while the proxy is running and it reloads automatically. Override the path with `CLAWMUX_CONFIG=/path/to/clawmux.json`.
 
 ### Cross-Provider Routing
 
@@ -99,7 +106,7 @@ OpenClaw → ClawMux Proxy (localhost:3456) → Upstream Provider(s)
 
 ClawMux resolves each model's context window using this priority chain:
 
-1. **clawmux.json** `routing.contextWindows` — explicit per-model override
+1. **~/.openclaw/clawmux.json** `routing.contextWindows` — explicit per-model override
 2. **openclaw.json** `models.providers[provider].models[].contextWindow` — user config
 3. **OpenClaw built-in catalog** — pi-ai model database (812+ models)
 4. **Default: 200,000 tokens**

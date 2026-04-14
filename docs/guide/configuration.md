@@ -29,7 +29,7 @@ If the user doesn't have a preference, recommend models based on their available
 
 ### Step 3: Write the Config
 
-Edit `clawmux.json` with the user's choices. Model IDs use `provider/model` format matching the keys in `openclaw.json`.
+Edit `~/.openclaw/clawmux.json` with the user's choices. Model IDs use `provider/model` format matching the keys in `openclaw.json`.
 
 ⚠️ **Do NOT use `clawmux` as a provider name in model IDs** — this causes infinite routing loops.
 
@@ -77,9 +77,9 @@ After writing `clawmux.json`, run `clawmux init` again to update the OpenClaw pr
 clawmux init
 ```
 
-This re-reads the MEDIUM model from `clawmux.json`, looks up its provider's API format in `openclaw.json`, and updates the `clawmux` provider's `api` field accordingly. This ensures OpenClaw sends requests in the correct format for the MEDIUM tier — minimizing unnecessary format translation.
+This re-reads the MEDIUM model from `~/.openclaw/clawmux.json`, looks up its provider's API format in `openclaw.json`, and updates the `clawmux` provider's `api` field accordingly. This ensures OpenClaw sends requests in the correct format for the MEDIUM tier — minimizing unnecessary format translation.
 
-**Always re-run `clawmux init` whenever you change the MEDIUM model in `clawmux.json`.**
+**Always re-run `clawmux init` whenever you change the MEDIUM model in `~/.openclaw/clawmux.json`.**
 
 ### Step 5: Verify
 
@@ -99,7 +99,7 @@ openclaw chat
 
 ## For Humans
 
-ClawMux is configured via `clawmux.json`. Changes are watched and applied without restart.
+ClawMux is configured via `~/.openclaw/clawmux.json`. Changes are watched and applied without restart.
 
 ### Minimal Config
 
@@ -119,13 +119,13 @@ ClawMux is configured via `clawmux.json`. Changes are watched and applied withou
 }
 ```
 
-After editing `clawmux.json`, re-run `clawmux init` to sync the OpenClaw provider registration:
+After editing `~/.openclaw/clawmux.json`, re-run `clawmux init` to sync the OpenClaw provider registration:
 
 ```bash
 clawmux init
 ```
 
-This updates the `api` format field in your `openclaw.json` to match the MEDIUM model's provider, reducing unnecessary format translation. Re-run this whenever you change the MEDIUM model.
+This updates the `api` format field in your `openclaw.json` to match the MEDIUM model's provider, reducing unnecessary format translation. Re-run this whenever you change the MEDIUM model in `~/.openclaw/clawmux.json`.
 
 Then select the ClawMux provider and verify routing:
 
@@ -202,7 +202,7 @@ All providers must be configured in your `openclaw.json`. Supported translation 
 
 ClawMux resolves each model's context window in this order:
 
-1. `clawmux.json` → `routing.contextWindows` (explicit override)
+1. `~/.openclaw/clawmux.json` → `routing.contextWindows` (explicit override)
 2. `openclaw.json` → provider model config
 3. OpenClaw built-in catalog (833+ models)
 4. Default: 200,000 tokens
@@ -211,4 +211,4 @@ Compression uses the **minimum** context window across all routing models.
 
 ## Hot Reload
 
-Edit `clawmux.json` while the proxy is running. Changes are detected via filesystem watcher and applied automatically with a 2-second debounce. Invalid config changes are ignored with a warning.
+Edit `~/.openclaw/clawmux.json` while the proxy is running. Changes are detected via filesystem watcher and applied automatically with a 2-second debounce. Invalid config changes are ignored with a warning.
