@@ -1,8 +1,6 @@
 # Configuration
 
-## For LLM Agents
-
-If you're an LLM agent continuing from the installation guide, follow these steps to complete model configuration.
+Follow these steps to complete model configuration.
 
 ### Step 1: Discover Available Models
 
@@ -94,47 +92,6 @@ If both return JSON, configuration is complete. Tell the user:
 openclaw provider clawmux
 openclaw chat
 ```
-
----
-
-## For Humans
-
-ClawMux is configured via `~/.openclaw/clawmux.json`. Changes are watched and applied without restart.
-
-### Minimal Config
-
-```json
-{
-  "compression": {
-    "threshold": 0.75,
-    "model": "anthropic/claude-3-5-haiku-20241022"
-  },
-  "routing": {
-    "models": {
-      "LIGHT": "anthropic/claude-3-5-haiku-20241022",
-      "MEDIUM": "anthropic/claude-sonnet-4-20250514",
-      "HEAVY": "anthropic/claude-opus-4-20250514"
-    }
-  }
-}
-```
-
-After editing `~/.openclaw/clawmux.json`, re-run `clawmux init` to sync the OpenClaw provider registration:
-
-```bash
-clawmux init
-```
-
-This updates the `api` format field in your `openclaw.json` to match the MEDIUM model's provider, reducing unnecessary format translation. Re-run this whenever you change the MEDIUM model in `~/.openclaw/clawmux.json`.
-
-Then select the ClawMux provider and verify routing:
-
-```bash
-openclaw provider clawmux
-openclaw chat
-```
-
-Send a simple message like "hi" — it should route to the LIGHT model. Send a complex question — it should route to HEAVY.
 
 ## Full Config Reference
 
