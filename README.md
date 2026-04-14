@@ -17,7 +17,7 @@ Smart model routing + context compression proxy for OpenClaw.
 Copy and paste this into your OpenClaw agent:
 
 ```bash
-Install and configure oh-my-opencode by following the instructions here:
+Install and configure ClawMux by following the instructions here:
 curl -s https://raw.githubusercontent.com/HyeokjaeLee/ClawMux/refs/heads/main/docs/guide/installation.md
 ```
 
