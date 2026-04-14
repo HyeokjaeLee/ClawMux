@@ -14,7 +14,7 @@ Smart model routing + context compression proxy for OpenClaw.
 
 ## Installation
 
-Fetch the installation guide and follow it:
+Copy and paste this into your OpenClaw agent:
 
 ```bash
 curl -s https://raw.githubusercontent.com/HyeokjaeLee/ClawMux/refs/heads/main/docs/guide/installation.md
