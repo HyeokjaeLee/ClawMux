@@ -337,6 +337,43 @@ async function update(): Promise<void> {
   }
 }
 
+async function fixAgentModelsJson(
+  homeDir: string,
+  providerKey: string,
+  correctBaseUrl: string,
+): Promise<void> {
+  const agentsDir = join(homeDir, ".openclaw", "agents");
+  let agentDirs: string[];
+  try {
+    const entries = await import("node:fs/promises").then((m) =>
+      m.readdir(agentsDir, { withFileTypes: true }),
+    );
+    agentDirs = entries.filter((d) => d.isDirectory()).map((d) => d.name);
+  } catch {
+    return;
+  }
+
+  for (const agentId of agentDirs) {
+    const modelsPath = join(agentsDir, agentId, "agent", "models.json");
+    try {
+      const raw = await readFile(modelsPath, "utf-8");
+      const data = JSON.parse(raw) as Record<string, unknown>;
+      const agentProviders = data["providers"] as Record<string, Record<string, unknown>> | undefined;
+      if (!agentProviders?.[providerKey]) continue;
+
+      const entry = agentProviders[providerKey];
+      const current = String(entry["baseUrl"] ?? "");
+      if (current === correctBaseUrl) continue;
+
+      entry["baseUrl"] = correctBaseUrl;
+      await writeFile(modelsPath, JSON.stringify(data, null, 2) + "\n");
+      console.log(`  fixed  agent ${agentId} ${providerKey} baseUrl: ${current} → ${correctBaseUrl}`);
+    } catch {
+      void 0;
+    }
+  }
+}
+
 // ── Commands ────────────────────────────────────────────
 
 async function init(): Promise<void> {
@@ -420,6 +457,8 @@ async function init(): Promise<void> {
     await writeFile(openclawConfigPath, JSON.stringify(config, null, 2) + "\n");
     console.log(`  added ${PROVIDER_KEY} provider to openclaw.json (api=${providerApi})`);
   }
+
+  await fixAgentModelsJson(homeDir, PROVIDER_KEY, "http://localhost:3456");
 
   const port = process.env.CLAWMUX_PORT ?? "3456";
 
