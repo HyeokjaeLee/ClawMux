@@ -56,12 +56,17 @@ async function fileExistsLocal(path: string): Promise<boolean> {
   }
 }
 
-function detectPackageManager(): "bunx" | "npx" {
+function detectInstallMethod(): "bun" | "npm" | "unknown" {
+  try {
+    const bin = execSync("which clawmux", { encoding: "utf-8" }).trim();
+    if (bin.includes(".bun/")) return "bun";
+    if (bin.includes(".npm/") || bin.includes("lib/node_modules/")) return "npm";
+  } catch {}
   try {
     execSync("which bun", { stdio: "pipe" });
-    return "bunx";
+    return "bun";
   } catch {
-    return "npx";
+    return "npm";
   }
 }
 
@@ -69,11 +74,11 @@ function resolveClawmuxBin(): string {
   try {
     const bin = execSync("which clawmux", { encoding: "utf-8" }).trim();
     if (bin.includes("/tmp/") || bin.includes("bunx-") || bin.includes("npx-")) {
-      return detectPackageManager() === "bunx" ? "bunx clawmux" : "npx clawmux";
+      return detectInstallMethod() === "bun" ? "bunx clawmux" : "npx clawmux";
     }
     return bin;
   } catch {
-    return detectPackageManager() === "bunx" ? "bunx clawmux" : "npx clawmux";
+    return detectInstallMethod() === "bun" ? "bunx clawmux" : "npx clawmux";
   }
 }
 
@@ -278,7 +283,7 @@ async function checkForUpdate(): Promise<void> {
 }
 
 async function update(): Promise<void> {
-  const pm = detectPackageManager();
+  const pm = detectInstallMethod();
   console.log(`[clawmux] Checking for updates...`);
 
   try {
@@ -304,7 +309,7 @@ async function update(): Promise<void> {
 
     console.log(`[clawmux] Updating ${VERSION} → ${latest}...`);
 
-    if (pm === "bunx") {
+    if (pm === "bun") {
       execSync("bun pm cache rm clawmux 2>/dev/null; bunx clawmux@latest version", { stdio: "inherit" });
     } else {
       execSync("npx clawmux@latest version", { stdio: "inherit" });
@@ -490,9 +495,9 @@ async function uninstall(): Promise<void> {
 
   console.log("[info] ClawMux uninstalled");
 
-  const pm = detectPackageManager();
+  const pm = detectInstallMethod();
   console.log(`\nTo remove the clawmux command, run:`);
-  if (pm === "bunx") {
+  if (pm === "bun") {
     console.log("  bun remove -g clawmux");
   } else {
     console.log("  npm uninstall -g clawmux");

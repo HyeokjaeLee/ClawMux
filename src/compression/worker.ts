@@ -1,7 +1,12 @@
 import type { Session } from "./types";
 import type { SessionStore } from "./session-store";
 import { estimateTokens } from "../utils/token-estimator";
-import { buildCompressionPrompt, buildCompressedMessages } from "./prompt";
+import {
+  buildCompressionPrompt,
+  buildCompressedMessages,
+  validateSummary,
+  buildQualityFeedbackPrompt,
+} from "./prompt";
 
 export type MakeApiCall = (
   model: string,
