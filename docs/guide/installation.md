@@ -44,10 +44,28 @@ This will:
 ### Step 3: Verify Installation
 
 ```bash
-clawmux status
+systemctl --user status clawmux
 ```
 
-Expected output: service is active/running. If the service failed, check logs and retry.
+Check the output **once**. Do not restart the service preemptively.
+
+**If `active (running)`** → proceed to Step 4.
+
+**If `inactive (dead)` or `failed`** → check logs to find the actual cause before taking any action:
+
+```bash
+journalctl --user -u clawmux -n 30
+```
+
+Common causes and fixes:
+
+| Log message | Cause | Fix |
+|---|---|---|
+| `address already in use` | Port 3456 taken | Kill the conflicting process or change port |
+| `Cannot find module` | Bad install | Re-run `bunx clawmux init` |
+| `SIGTERM` with no error | Service was stopped externally | Run `systemctl --user start clawmux` |
+
+**Do not run `systemctl restart` or `start` more than once without reading the logs first.** Repeated restarts without diagnosing the root cause can leave the service in a stopped state that looks like a failure but isn't.
 
 ### Step 4: Configure Models
 
