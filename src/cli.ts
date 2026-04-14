@@ -481,6 +481,13 @@ async function uninstall(): Promise<void> {
     }
   }
 
+  const clawmuxDir = join(homeDir, ".openclaw", "clawmux");
+  if (await fileExistsLocal(clawmuxDir)) {
+    const { rm } = await import("node:fs/promises");
+    await rm(clawmuxDir, { recursive: true, force: true });
+    console.log("[info] Removed ~/.openclaw/clawmux (config and logs)");
+  }
+
   console.log("[info] ClawMux uninstalled");
 }
 

@@ -138,8 +138,8 @@ Tests are co-located with source files as `*.test.ts`.
 
 ## Uninstall
 
-```bash
-clawmux uninstall
-```
+Fetch the uninstallation guide and follow it:
 
-Stops the system service, removes the service file, and removes the `clawmux` provider from your OpenClaw config. A backup is created before any changes.
+```bash
+curl -fsSL https://raw.githubusercontent.com/HyeokjaeLee/ClawMux/refs/heads/main/docs/guide/uninstallation.md
+```

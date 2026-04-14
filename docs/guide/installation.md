@@ -112,7 +112,6 @@ Setup is complete.
 | `clawmux start --port 4000` | Start on custom port |
 | `clawmux stop` | Stop the system service |
 | `clawmux status` | Check if service is running |
-| `clawmux uninstall` | Remove service + OpenClaw providers |
 | `clawmux version` | Print version |
 
 ## Runtime Comparison
@@ -160,14 +159,6 @@ Verify after update:
 clawmux version
 clawmux status
 ```
-
-## Uninstall
-
-```bash
-clawmux uninstall
-```
-
-Stops the system service, removes the service file, and removes the `clawmux` provider from your OpenClaw config.
 
 ## Install from Source (development)
 
