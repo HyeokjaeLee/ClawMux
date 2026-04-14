@@ -138,8 +138,9 @@ Tests are co-located with source files as `*.test.ts`.
 
 ## Uninstall
 
-Fetch the uninstallation guide and follow it:
+Copy and paste this into your OpenClaw agent:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/HyeokjaeLee/ClawMux/refs/heads/main/docs/guide/uninstallation.md
+Uninstall ClawMux by following the instructions here:
+curl -s https://raw.githubusercontent.com/HyeokjaeLee/ClawMux/refs/heads/main/docs/guide/uninstallation.md
 ```
