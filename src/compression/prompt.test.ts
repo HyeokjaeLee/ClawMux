@@ -2,7 +2,6 @@ import { describe, expect, it } from "bun:test";
 import {
   messagesToText,
   buildCompressionPrompt,
-  parseSummary,
   buildCompressedMessages,
 } from "./prompt";
 
@@ -13,7 +12,7 @@ describe("messagesToText", () => {
       { role: "assistant", content: "Hi there!" },
     ];
     const result = messagesToText(messages);
-    expect(result).toBe("[user]: Hello\n[assistant]: Hi there!\n");
+    expect(result).toBe("[User]: Hello\n[Assistant]: Hi there!\n");
   });
 
   it("handles array content with text and image blocks", () => {
@@ -33,7 +32,7 @@ describe("messagesToText", () => {
       },
     ];
     const result = messagesToText(messages);
-    expect(result).toBe("[user]: Look at this [image]\n");
+    expect(result).toBe("[User]: Look at this [image]\n");
   });
 
   it("replaces thinking blocks with [thinking]", () => {
@@ -47,7 +46,7 @@ describe("messagesToText", () => {
       },
     ];
     const result = messagesToText(messages);
-    expect(result).toBe("[assistant]: [thinking] Here is my answer.\n");
+    expect(result).toBe("[Assistant]: [thinking] Here is my answer.\n");
   });
 
   it("truncates long messages at 2000 chars", () => {
@@ -55,9 +54,8 @@ describe("messagesToText", () => {
     const messages = [{ role: "user", content: longContent }];
     const result = messagesToText(messages);
     expect(result).toContain("... [truncated]");
-    // [user]: + 2000 chars + ... [truncated] + \n
     const line = result.split("\n")[0];
-    expect(line.length).toBeLessThanOrEqual("[user]: ".length + 2000 + "... [truncated]".length);
+    expect(line.length).toBeLessThanOrEqual("[User]: ".length + 2000 + "... [truncated]".length);
   });
 
   it("handles empty messages array", () => {
@@ -112,7 +110,7 @@ describe("messagesToText", () => {
       },
     ];
     const result = messagesToText(messages);
-    expect(result).toBe("[user]: [image]\n");
+    expect(result).toBe("[User]: [image]\n");
     expect(result).not.toContain("base64");
   });
 
@@ -124,19 +122,41 @@ describe("messagesToText", () => {
       },
     ];
     const result = messagesToText(messages as Array<{ role: string; content: unknown }>);
-    expect(result).toBe("[user]: 12345\n");
+    expect(result).toBe("[User]: 12345\n");
   });
 });
 
 describe("buildCompressionPrompt", () => {
-  it("includes target token count in prompt", () => {
+  it("returns system and user messages", () => {
+    const messages = [{ role: "user", content: "Hello" }];
+    const result = buildCompressionPrompt(messages, 500);
+    expect(result).toHaveLength(2);
+    expect(result[0].role).toBe("system");
+    expect(result[1].role).toBe("user");
+  });
+
+  it("system prompt instructs not to continue conversation", () => {
+    const messages = [{ role: "user", content: "Hello" }];
+    const result = buildCompressionPrompt(messages, 500);
+    expect(result[0].content).toContain("Do NOT continue the conversation");
+    expect(result[0].content).toContain("ONLY output the structured summary");
+  });
+
+  it("includes target token count in user prompt", () => {
     const messages = [
       { role: "user", content: "Help me build a web app" },
       { role: "assistant", content: "Sure, I can help with that." },
     ];
     const result = buildCompressionPrompt(messages, 500);
-    expect(result).toContain("500");
-    expect(result).toContain("tokens");
+    expect(result[1].content).toContain("500");
+    expect(result[1].content).toContain("tokens");
+  });
+
+  it("wraps conversation in <conversation> tags", () => {
+    const messages = [{ role: "user", content: "Hello" }];
+    const result = buildCompressionPrompt(messages, 500);
+    expect(result[1].content).toContain("<conversation>");
+    expect(result[1].content).toContain("</conversation>");
   });
 
   it("preserves file paths in formatted messages", () => {
@@ -145,138 +165,66 @@ describe("buildCompressionPrompt", () => {
       { role: "assistant", content: "I updated /home/user/project/index.ts" },
     ];
     const result = buildCompressionPrompt(messages, 1000);
-    expect(result).toContain("src/utils/token-estimator.ts");
-    expect(result).toContain("/home/user/project/index.ts");
+    expect(result[1].content).toContain("src/utils/token-estimator.ts");
+    expect(result[1].content).toContain("/home/user/project/index.ts");
   });
 
   it("includes structured summary template sections", () => {
     const messages = [{ role: "user", content: "Hello" }];
     const result = buildCompressionPrompt(messages, 500);
-    expect(result).toContain("## Goal");
-    expect(result).toContain("## Constraints & Preferences");
-    expect(result).toContain("## Progress");
-    expect(result).toContain("### Done");
-    expect(result).toContain("### In Progress");
-    expect(result).toContain("### Blocked");
-    expect(result).toContain("## Key Decisions");
-    expect(result).toContain("## Active State");
-    expect(result).toContain("## Next Steps");
-    expect(result).toContain("## Critical Context");
+    const userContent = result[1].content;
+    expect(userContent).toContain("## Goal");
+    expect(userContent).toContain("## Constraints & Preferences");
+    expect(userContent).toContain("## Progress");
+    expect(userContent).toContain("### Done");
+    expect(userContent).toContain("### In Progress");
+    expect(userContent).toContain("### Blocked");
+    expect(userContent).toContain("## Key Decisions");
+    expect(userContent).toContain("## Next Steps");
+    expect(userContent).toContain("## Critical Context");
   });
 
-  it("includes preservation instructions", () => {
+  it("includes identifier preservation instructions", () => {
     const messages = [{ role: "user", content: "Hello" }];
     const result = buildCompressionPrompt(messages, 500);
-    expect(result).toContain("file paths");
-    expect(result).toContain("error messages");
+    expect(result[1].content).toContain("UUIDs");
+    expect(result[1].content).toContain("file paths");
   });
 
-  it("includes the conversation messages in the prompt", () => {
+  it("includes the conversation messages with [User]/[Assistant] labels", () => {
     const messages = [
       { role: "user", content: "Create a REST API" },
       { role: "assistant", content: "I'll create the API endpoints." },
     ];
     const result = buildCompressionPrompt(messages, 1000);
-    expect(result).toContain("[user]: Create a REST API");
-    expect(result).toContain("[assistant]: I'll create the API endpoints.");
-  });
-});
-
-describe("parseSummary", () => {
-  it("extracts sections correctly", () => {
-    const summaryText = `## Goal
-Build a web application with authentication
-
-## Constraints & Preferences
-Use TypeScript, no external deps
-
-## Progress
-### Done
-- Set up project structure
-### In Progress
-- Implementing auth
-### Blocked
-- None
-
-## Key Decisions
-Using JWT for auth
-
-## Active State
-src/auth/handler.ts, src/config/env.ts
-
-## Next Steps
-Implement token refresh
-
-## Critical Context
-API key stored in .env`;
-
-    const result = parseSummary(summaryText);
-    expect(result.fullText).toBe(summaryText);
-    expect(result.sections["Goal"]).toContain("Build a web application");
-    expect(result.sections["Constraints & Preferences"]).toContain("TypeScript");
-    expect(result.sections["Key Decisions"]).toContain("JWT");
-    expect(result.sections["Active State"]).toContain("src/auth/handler.ts");
-    expect(result.sections["Next Steps"]).toContain("token refresh");
-    expect(result.sections["Critical Context"]).toContain("API key");
-  });
-
-  it("handles Progress with sub-sections", () => {
-    const summaryText = `## Progress
-### Done
-- Item A
-### In Progress
-- Item B
-### Blocked
-- Item C`;
-
-    const result = parseSummary(summaryText);
-    expect(result.sections["Progress"]).toContain("Item A");
-    expect(result.sections["Progress"]).toContain("Item B");
-    expect(result.sections["Progress"]).toContain("Item C");
-  });
-
-  it("returns fullText only for malformed input", () => {
-    const malformed = "This is just plain text without any sections";
-    const result = parseSummary(malformed);
-    expect(result.fullText).toBe(malformed);
-    expect(Object.keys(result.sections)).toHaveLength(0);
-  });
-
-  it("handles empty string", () => {
-    const result = parseSummary("");
-    expect(result.fullText).toBe("");
-    expect(Object.keys(result.sections)).toHaveLength(0);
-  });
-
-  it("handles partial sections", () => {
-    const partial = `## Goal
-Do something cool
-
-Some random text here`;
-
-    const result = parseSummary(partial);
-    expect(result.sections["Goal"]).toContain("Do something cool");
-    expect(result.sections["Goal"]).toContain("Some random text here");
+    expect(result[1].content).toContain("[User]: Create a REST API");
+    expect(result[1].content).toContain("[Assistant]: I'll create the API endpoints.");
   });
 });
 
 describe("buildCompressedMessages", () => {
-  it("wraps summary in a user message", () => {
+  it("returns user + assistant message pair", () => {
     const summary = "## Goal\nBuild an app";
     const result = buildCompressedMessages(summary);
-    expect(result).toHaveLength(1);
+    expect(result).toHaveLength(2);
     expect(result[0].role).toBe("user");
-    expect(result[0].content).toContain("Previous conversation summary:");
+    expect(result[1].role).toBe("assistant");
+  });
+
+  it("prefixes user message with [Summary of previous conversation]", () => {
+    const summary = "## Goal\nBuild an app";
+    const result = buildCompressedMessages(summary);
+    expect(result[0].content).toContain("[Summary of previous conversation]");
     expect(result[0].content).toContain(summary);
   });
 
+  it("assistant message acknowledges context", () => {
+    const result = buildCompressedMessages("some summary");
+    expect(result[1].content).toContain("previous conversation");
+  });
+
   it("preserves the full summary text", () => {
-    const summary = `## Goal
-Build a web app
-
-## Key Decisions
-Use Bun runtime`;
-
+    const summary = `## Goal\nBuild a web app\n\n## Key Decisions\nUse Bun runtime`;
     const result = buildCompressedMessages(summary);
     expect(result[0].content).toContain("Build a web app");
     expect(result[0].content).toContain("Use Bun runtime");

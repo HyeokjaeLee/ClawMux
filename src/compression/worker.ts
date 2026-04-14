@@ -1,6 +1,7 @@
 import type { Session } from "./types";
 import type { SessionStore } from "./session-store";
 import { estimateTokens } from "../utils/token-estimator";
+import { buildCompressionPrompt, buildCompressedMessages } from "./prompt";
 
 export type MakeApiCall = (
   model: string,
@@ -56,47 +57,6 @@ function estimateMessageTokens(
 ): number {
   const MESSAGE_OVERHEAD = 4;
   return MESSAGE_OVERHEAD + estimateTokens(messageContentToString(msg.content));
-}
-
-function buildCompressionPrompt(
-  messages: Array<{ role: string; content: unknown }>,
-  targetTokens: number,
-): Array<{ role: string; content: string }> {
-  const conversationText = messages
-    .map((m) => `${m.role}: ${messageContentToString(m.content)}`)
-    .join("\n\n");
-
-  return [
-    {
-      role: "system",
-      content: [
-        "You are a conversation summarizer. Produce a concise summary of the conversation below.",
-        `Target length: approximately ${targetTokens} tokens.`,
-        "Preserve: key decisions, code snippets, technical details, and action items.",
-        "Format: plain text paragraphs. Start with the most important context.",
-      ].join("\n"),
-    },
-    {
-      role: "user",
-      content: conversationText,
-    },
-  ];
-}
-
-function buildCompressedMessages(
-  summary: string,
-): Array<{ role: string; content: unknown }> {
-  return [
-    {
-      role: "user",
-      content: `${SUMMARY_PREFIX}\n${summary}`,
-    },
-    {
-      role: "assistant",
-      content:
-        "Understood. I have the context from our previous conversation. How can I help you continue?",
-    },
-  ];
 }
 
 export function truncateToFit(

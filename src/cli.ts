@@ -489,6 +489,14 @@ async function uninstall(): Promise<void> {
   }
 
   console.log("[info] ClawMux uninstalled");
+
+  const pm = detectPackageManager();
+  console.log(`\nTo remove the clawmux command, run:`);
+  if (pm === "bunx") {
+    console.log("  bun remove -g clawmux");
+  } else {
+    console.log("  npm uninstall -g clawmux");
+  }
 }
 
 // ── Entry ───────────────────────────────────────────────
