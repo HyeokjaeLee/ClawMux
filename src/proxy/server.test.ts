@@ -30,6 +30,20 @@ describe("GET /health", () => {
   });
 });
 
+describe("GET /v1/models", () => {
+  test("returns OpenAI-compatible models list with auto model", async () => {
+    const res = await fetch(`${BASE}/v1/models`);
+    expect(res.status).toBe(200);
+    const body = await res.json() as { object: string; data: Array<{ id: string; object: string; owned_by: string }> };
+    expect(body.object).toBe("list");
+    expect(Array.isArray(body.data)).toBe(true);
+    const auto = body.data.find((m) => m.id === "auto");
+    expect(auto).toBeDefined();
+    expect(auto!.object).toBe("model");
+    expect(auto!.owned_by).toBe("clawmux");
+  });
+});
+
 describe("GET /stats", () => {
   test("returns 200 with stub message", async () => {
     const res = await fetch(`${BASE}/stats`);

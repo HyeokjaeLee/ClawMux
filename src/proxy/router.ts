@@ -37,6 +37,23 @@ const routes: RouteEntry[] = [
     key: "/stats",
   },
   {
+    method: "GET",
+    match: (p) => p === "/v1/models",
+    handler: async () =>
+      jsonResponse({
+        object: "list",
+        data: [
+          {
+            id: "auto",
+            object: "model",
+            created: 0,
+            owned_by: "clawmux",
+          },
+        ],
+      }),
+    key: "/v1/models",
+  },
+  {
     method: "POST",
     match: (p) => p === "/v1/messages",
     handler: stubNotImplemented("anthropic"),
