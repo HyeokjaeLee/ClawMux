@@ -3,6 +3,8 @@ import {
   messagesToText,
   buildCompressionPrompt,
   buildCompressedMessages,
+  validateSummary,
+  buildQualityFeedbackPrompt,
 } from "./prompt";
 
 describe("messagesToText", () => {
@@ -159,6 +161,22 @@ describe("buildCompressionPrompt", () => {
     expect(result[1].content).toContain("</conversation>");
   });
 
+  it("uses initial prompt when no previousSummary", () => {
+    const messages = [{ role: "user", content: "Hello" }];
+    const result = buildCompressionPrompt(messages, 500);
+    expect(result[1].content).not.toContain("<previous-summary>");
+    expect(result[1].content).toContain("Compress the conversation above");
+  });
+
+  it("uses update prompt and includes previous-summary tag when previousSummary provided", () => {
+    const messages = [{ role: "user", content: "Continue" }];
+    const result = buildCompressionPrompt(messages, 500, "## Goal\nBuild an app");
+    expect(result[1].content).toContain("<previous-summary>");
+    expect(result[1].content).toContain("## Goal\nBuild an app");
+    expect(result[1].content).toContain("</previous-summary>");
+    expect(result[1].content).toContain("PRESERVE all existing information");
+  });
+
   it("preserves file paths in formatted messages", () => {
     const messages = [
       { role: "user", content: "Edit the file at src/utils/token-estimator.ts" },
@@ -199,6 +217,59 @@ describe("buildCompressionPrompt", () => {
     const result = buildCompressionPrompt(messages, 1000);
     expect(result[1].content).toContain("[User]: Create a REST API");
     expect(result[1].content).toContain("[Assistant]: I'll create the API endpoints.");
+  });
+});
+
+describe("validateSummary", () => {
+  it("returns valid for summary with all required sections", () => {
+    const summary = [
+      "## Goal\nBuild an app",
+      "## Constraints & Preferences\n- None",
+      "## Progress\n### Done\n- x",
+      "## Key Decisions\n- Decision",
+      "## Next Steps\n1. Step",
+      "## Critical Context\n- None",
+    ].join("\n\n");
+    const result = validateSummary(summary);
+    expect(result.valid).toBe(true);
+    expect(result.missingSections).toHaveLength(0);
+  });
+
+  it("returns missing sections when sections are absent", () => {
+    const summary = "## Goal\nBuild an app\n\n## Progress\n### Done\n- x";
+    const result = validateSummary(summary);
+    expect(result.valid).toBe(false);
+    expect(result.missingSections).toContain("## Constraints & Preferences");
+    expect(result.missingSections).toContain("## Key Decisions");
+    expect(result.missingSections).toContain("## Next Steps");
+    expect(result.missingSections).toContain("## Critical Context");
+  });
+
+  it("returns all sections missing for empty summary", () => {
+    const result = validateSummary("");
+    expect(result.valid).toBe(false);
+    expect(result.missingSections).toHaveLength(6);
+  });
+});
+
+describe("buildQualityFeedbackPrompt", () => {
+  it("returns assistant + user message pair", () => {
+    const result = buildQualityFeedbackPrompt("partial summary", ["## Key Decisions"]);
+    expect(result).toHaveLength(2);
+    expect(result[0].role).toBe("assistant");
+    expect(result[1].role).toBe("user");
+  });
+
+  it("includes missing section names in feedback", () => {
+    const result = buildQualityFeedbackPrompt("partial", ["## Key Decisions", "## Next Steps"]);
+    expect(result[1].content).toContain("## Key Decisions");
+    expect(result[1].content).toContain("## Next Steps");
+  });
+
+  it("echoes the bad summary back as assistant content", () => {
+    const badSummary = "this is incomplete";
+    const result = buildQualityFeedbackPrompt(badSummary, ["## Goal"]);
+    expect(result[0].content).toBe(badSummary);
   });
 });
 

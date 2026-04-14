@@ -218,19 +218,3 @@ export function buildCompressedMessages(
     },
   ];
 }
-
-export function buildCompressedMessages(
-  summary: string,
-): Array<{ role: string; content: string }> {
-  return [
-    {
-      role: "user",
-      content: `[Summary of previous conversation]\n${summary}`,
-    },
-    {
-      role: "assistant",
-      content:
-        "Understood. I have the context from our previous conversation. How can I help you continue?",
-    },
-  ];
-}

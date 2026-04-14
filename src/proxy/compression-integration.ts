@@ -133,7 +133,7 @@ export function createCompressionMiddleware(
     compressionModel: config.compressionModel,
     contextWindow,
     maxConcurrent: 2,
-    timeoutMs: 60_000,
+    timeoutMs: 900_000,
   });
 
   function beforeForward(

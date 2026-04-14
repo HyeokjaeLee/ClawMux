@@ -14,18 +14,41 @@ export type MakeApiCall = (
 ) => Promise<string>;
 
 export interface CompressionWorkerConfig {
-  /** Trigger compression at this fraction of context window (default 0.75) */
   threshold: number;
-  /** Compress to this fraction of context window (default 0.6) */
   targetRatio: number;
-  /** Model to use for summarization */
   compressionModel: string;
-  /** Context window size in tokens (default 200000) */
   contextWindow: number;
-  /** Max concurrent compression jobs (default 2) */
   maxConcurrent: number;
-  /** Timeout per job in ms (default 60000) */
   timeoutMs: number;
+}
+
+const MAX_RETRIES = 3;
+const MAX_QUALITY_RETRIES = 3;
+const BASE_RETRY_DELAY_MS = 500;
+const MAX_RETRY_DELAY_MS = 5000;
+
+function retryDelayMs(attempt: number): number {
+  const jitter = Math.random() * 500;
+  return Math.min(BASE_RETRY_DELAY_MS * 2 ** attempt + jitter, MAX_RETRY_DELAY_MS);
+}
+
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxRetries: number,
+): Promise<T> {
+  let lastError: Error = new Error("unknown");
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (lastError.message === "compression_timeout") throw lastError;
+      if (attempt < maxRetries - 1) {
+        await new Promise((r) => setTimeout(r, retryDelayMs(attempt)));
+      }
+    }
+  }
+  throw lastError;
 }
 
 export interface CompressionWorker {
@@ -113,6 +136,29 @@ export function createCompressionWorker(
     );
   }
 
+  async function summarizeWithQualityGuard(
+    messages: Array<{ role: string; content: unknown }>,
+    targetTokens: number,
+    previousSummary: string | undefined,
+    makeApiCall: MakeApiCall,
+  ): Promise<string> {
+    const initialPrompt = buildCompressionPrompt(messages, targetTokens, previousSummary);
+    let summaryText = await makeApiCall(config.compressionModel, initialPrompt);
+
+    for (let attempt = 0; attempt < MAX_QUALITY_RETRIES - 1; attempt++) {
+      const { valid, missingSections } = validateSummary(summaryText);
+      if (valid) break;
+
+      const feedbackMessages = [
+        ...initialPrompt,
+        ...buildQualityFeedbackPrompt(summaryText, missingSections),
+      ];
+      summaryText = await makeApiCall(config.compressionModel, feedbackMessages);
+    }
+
+    return summaryText;
+  }
+
   function triggerCompression(
     session: Session,
     sessionStore: SessionStore,
@@ -129,15 +175,15 @@ export function createCompressionWorker(
     activeJobs++;
 
     const targetTokens = config.targetRatio * config.contextWindow;
-    const promptMessages = buildCompressionPrompt(
-      session.messages,
-      targetTokens,
-    );
     const sessionId = session.id;
     const originalMessages = [...session.messages];
+    const previousSummary = session.compressedSummary;
 
     const jobPromise = Promise.race([
-      makeApiCall(config.compressionModel, promptMessages),
+      withRetry(
+        () => summarizeWithQualityGuard(originalMessages, targetTokens, previousSummary, makeApiCall),
+        MAX_RETRIES,
+      ),
       new Promise<never>((_resolve, reject) => {
         setTimeout(() => reject(new Error("compression_timeout")), config.timeoutMs);
       }),

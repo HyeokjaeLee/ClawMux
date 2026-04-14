@@ -90,7 +90,15 @@ describe("CompressionWorker", () => {
       const session = makeSession({ tokenCount: 800 });
       const store = makeStore(session);
 
-      const apiCall: MakeApiCall = mock(async () => "This is a summary of the conversation.");
+      const validSummary = [
+        "## Goal\nBuild an app",
+        "## Constraints & Preferences\n- None",
+        "## Progress\n### Done\n- x",
+        "## Key Decisions\n- Decision",
+        "## Next Steps\n1. Step",
+        "## Critical Context\n- None",
+      ].join("\n\n");
+      const apiCall: MakeApiCall = mock(async () => validSummary);
 
       worker.triggerCompression(session, store, apiCall);
 
@@ -98,7 +106,7 @@ describe("CompressionWorker", () => {
       expect(session.snapshotIndex).toBe(5);
       expect(worker.getStats().activeJobs).toBe(1);
 
-      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 200));
 
       expect(session.compressionState).toBe("ready");
       expect(session.compressedMessages).toBeDefined();
@@ -113,17 +121,25 @@ describe("CompressionWorker", () => {
       const session = makeSession({ tokenCount: 800 });
       const store = makeStore(session);
 
-      const apiCall = mock(async () => "summary");
+      const validSummary = [
+        "## Goal\nBuild an app",
+        "## Constraints & Preferences\n- None",
+        "## Progress\n### Done\n- x",
+        "## Key Decisions\n- Decision",
+        "## Next Steps\n1. Step",
+        "## Critical Context\n- None",
+      ].join("\n\n");
+      const apiCall = mock(async () => validSummary);
 
       worker.triggerCompression(session, store, apiCall);
-      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 200));
 
-      expect(apiCall).toHaveBeenCalledTimes(1);
       const callArgs = (apiCall as ReturnType<typeof mock>).mock.calls[0];
       expect(callArgs[0]).toBe("my-model");
+      expect(worker.getStats().completedJobs).toBe(1);
     });
 
-    test("resets to idle on non-timeout error", async () => {
+    test("resets to idle after exhausting retries on non-timeout error", async () => {
       const worker = createCompressionWorker(makeConfig());
       const session = makeSession({ tokenCount: 800 });
       const store = makeStore(session);
@@ -133,11 +149,95 @@ describe("CompressionWorker", () => {
       });
 
       worker.triggerCompression(session, store, apiCall);
-      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 5000));
 
       expect(session.compressionState).toBe("idle");
       expect(worker.getStats().failedJobs).toBe(1);
       expect(worker.getStats().completedJobs).toBe(0);
+    }, 10000);
+
+    test("retries on transient error and succeeds", async () => {
+      const worker = createCompressionWorker(makeConfig());
+      const session = makeSession({ tokenCount: 800 });
+      const store = makeStore(session);
+
+      let callCount = 0;
+      const apiCall: MakeApiCall = mock(async () => {
+        callCount++;
+        if (callCount < 3) throw new Error("transient error");
+        return [
+          "## Goal\nBuild an app",
+          "## Constraints & Preferences\n- None",
+          "## Progress\n### Done\n- x",
+          "## Key Decisions\n- Decision",
+          "## Next Steps\n1. Step",
+          "## Critical Context\n- None",
+        ].join("\n\n");
+      });
+
+      worker.triggerCompression(session, store, apiCall);
+      await new Promise((r) => setTimeout(r, 5000));
+
+      expect(session.compressionState).toBe("ready");
+      expect(callCount).toBeGreaterThanOrEqual(3);
+      expect(worker.getStats().completedJobs).toBe(1);
+    }, 10000);
+
+    test("quality guard triggers re-generation when sections missing", async () => {
+      const worker = createCompressionWorker(makeConfig());
+      const session = makeSession({ tokenCount: 800 });
+      const store = makeStore(session);
+
+      let callCount = 0;
+      const validSummary = [
+        "## Goal\nBuild an app",
+        "## Constraints & Preferences\n- None",
+        "## Progress\n### Done\n- x",
+        "## Key Decisions\n- Decision",
+        "## Next Steps\n1. Step",
+        "## Critical Context\n- None",
+      ].join("\n\n");
+
+      const apiCall: MakeApiCall = mock(async () => {
+        callCount++;
+        if (callCount === 1) return "## Goal\nOnly goal section";
+        return validSummary;
+      });
+
+      worker.triggerCompression(session, store, apiCall);
+      await new Promise((r) => setTimeout(r, 200));
+
+      expect(session.compressionState).toBe("ready");
+      expect(callCount).toBe(2);
+      expect(worker.getStats().completedJobs).toBe(1);
+    });
+
+    test("uses previousSummary for update prompt on subsequent compression", async () => {
+      const worker = createCompressionWorker(makeConfig());
+      const session = makeSession({
+        tokenCount: 800,
+        compressedSummary: "## Goal\nPrevious summary",
+      });
+      const store = makeStore(session);
+
+      const capturedMessages: Array<Array<{ role: string; content: string }>> = [];
+      const apiCall: MakeApiCall = mock(async (_, messages) => {
+        capturedMessages.push(messages);
+        return [
+          "## Goal\nBuild an app",
+          "## Constraints & Preferences\n- None",
+          "## Progress\n### Done\n- x",
+          "## Key Decisions\n- Decision",
+          "## Next Steps\n1. Step",
+          "## Critical Context\n- None",
+        ].join("\n\n");
+      });
+
+      worker.triggerCompression(session, store, apiCall);
+      await new Promise((r) => setTimeout(r, 200));
+
+      expect(capturedMessages[0][1].content).toContain("<previous-summary>");
+      expect(capturedMessages[0][1].content).toContain("Previous summary");
     });
 
     test("skips when maxConcurrent reached", async () => {
@@ -170,9 +270,17 @@ describe("CompressionWorker", () => {
       expect(worker.getStats().activeJobs).toBe(2);
       expect(session3.compressionState).toBe("idle");
 
-      resolveFirst("summary1");
-      resolveSecond("summary2");
-      await new Promise((r) => setTimeout(r, 50));
+      const validSummary = [
+        "## Goal\nBuild an app",
+        "## Constraints & Preferences\n- None",
+        "## Progress\n### Done\n- x",
+        "## Key Decisions\n- Decision",
+        "## Next Steps\n1. Step",
+        "## Critical Context\n- None",
+      ].join("\n\n");
+      resolveFirst(validSummary);
+      resolveSecond(validSummary);
+      await new Promise((r) => setTimeout(r, 200));
 
       expect(worker.getStats().activeJobs).toBe(0);
       expect(worker.getStats().completedJobs).toBe(2);
@@ -333,19 +441,27 @@ describe("CompressionWorker", () => {
       store.set("success", successSession);
       store.set("fail", failSession);
 
-      const successApi: MakeApiCall = async () => "summary";
+      const validSummary = [
+        "## Goal\nBuild an app",
+        "## Constraints & Preferences\n- None",
+        "## Progress\n### Done\n- x",
+        "## Key Decisions\n- Decision",
+        "## Next Steps\n1. Step",
+        "## Critical Context\n- None",
+      ].join("\n\n");
+      const successApi: MakeApiCall = async () => validSummary;
       const failApi: MakeApiCall = async () => { throw new Error("fail"); };
 
       worker.triggerCompression(successSession, store, successApi);
       worker.triggerCompression(failSession, store, failApi);
 
-      await new Promise((r) => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 6000));
 
       const stats = worker.getStats();
       expect(stats.activeJobs).toBe(0);
       expect(stats.completedJobs).toBe(1);
       expect(stats.failedJobs).toBe(1);
-    });
+    }, 10000);
 
     test("initial stats are all zero", () => {
       const worker = createCompressionWorker(makeConfig());

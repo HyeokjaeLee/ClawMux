@@ -30,13 +30,10 @@ If OpenClaw isn't installed, help the user install it first.
 
 ### Step 2: Run the Installer
 
-```bash
-# Bun (preferred — faster)
-bunx clawmux init
+Based on the runtime detected in Step 1:
 
-# Node.js (alternative)
-npx clawmux init
-```
+- If Bun is available: `bunx clawmux init`
+- Otherwise: `npx clawmux init`
 
 This will:
 1. Detect OpenClaw config at `~/.openclaw/openclaw.json`
