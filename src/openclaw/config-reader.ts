@@ -88,8 +88,8 @@ function parseAuthProfilesFile(text: string): AuthProfile[] {
  * Merge strategy: later files override earlier ones by profile key.
  * "main" agent is read first as baseline, then all others alphabetically.
  */
-export async function readAuthProfiles(_agentId?: string, _profilesPath?: string): Promise<AuthProfile[]> {
-  const agentsDir = join(getHomeDir(), ".openclaw", "agents");
+export async function readAuthProfiles(_agentId?: string, _profilesPath?: string, agentsDirOverride?: string): Promise<AuthProfile[]> {
+  const agentsDir = agentsDirOverride ?? join(getHomeDir(), ".openclaw", "agents");
 
   let agentDirs: string[];
   try {

@@ -7,6 +7,7 @@ import type {
 import type { ParsedResponse, StreamEvent } from "./response-types.ts";
 import { registerAdapter } from "./registry.ts";
 import { parseOpenAIBody } from "./openai-shared.ts";
+import { toOpenAITools } from "./tool-converter.ts";
 
 class OpenAICompletionsAdapter implements ApiAdapter {
   readonly apiType = "openai-completions" as const;
@@ -22,10 +23,14 @@ class OpenAICompletionsAdapter implements ApiAdapter {
     auth: AuthInfo,
   ): UpstreamRequest {
     const { rawBody } = parsed;
-    const upstreamBody = {
+    const upstreamBody: Record<string, unknown> = {
       ...rawBody,
       model: targetModel,
     };
+
+    if (upstreamBody.tools) {
+      upstreamBody.tools = toOpenAITools(upstreamBody.tools);
+    }
 
     return {
       url: /\/v\d+\/?$/.test(baseUrl)
@@ -62,8 +67,11 @@ class OpenAICompletionsAdapter implements ApiAdapter {
     if (Array.isArray(choices) && choices.length > 0) {
       const choice = choices[0];
       const message = choice.message as Record<string, unknown> | undefined;
-      if (message && typeof message.content === "string") {
-        content = message.content;
+      if (message) {
+        const messageText = message.content ?? message.reasoning_content;
+        if (typeof messageText === "string") {
+          content = messageText;
+        }
       }
       if (typeof choice.finish_reason === "string") {
         stopReason = choice.finish_reason;
@@ -152,16 +160,18 @@ class OpenAICompletionsAdapter implements ApiAdapter {
       const delta = choice.delta as Record<string, unknown> | undefined;
       const finishReason = choice.finish_reason;
 
-      if (delta?.role === "assistant" && !delta.content) {
+      const textContent = delta?.content ?? delta?.reasoning_content;
+
+      if (delta?.role === "assistant" && textContent == null) {
         events.push({
           type: "message_start",
           id: String(data.id ?? ""),
           model: String(data.model ?? ""),
         });
-      } else if (typeof delta?.content === "string") {
+      } else if (typeof textContent === "string") {
         events.push({
           type: "content_delta",
-          text: delta.content,
+          text: textContent,
           index: typeof choice.index === "number" ? choice.index : 0,
         });
       }
@@ -203,7 +213,7 @@ class OpenAICompletionsAdapter implements ApiAdapter {
           choices: [
             {
               index: 0,
-              delta: { role: "assistant", content: "" },
+              delta: { role: "assistant" },
               finish_reason: null,
             },
           ],

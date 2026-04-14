@@ -1,5 +1,6 @@
 import type { ApiAdapter, AuthInfo, ParsedRequest, UpstreamRequest } from "./types.ts";
 import type { ParsedResponse, StreamEvent } from "./response-types.ts";
+import { toAnthropicTools } from "./tool-converter.ts";
 
 export class AnthropicAdapter implements ApiAdapter {
   readonly apiType = "anthropic-messages" as const;
@@ -42,6 +43,10 @@ export class AnthropicAdapter implements ApiAdapter {
       ...parsed.rawBody,
       model: targetModel,
     };
+
+    if (bodyObj.tools) {
+      bodyObj.tools = toAnthropicTools(bodyObj.tools);
+    }
 
     const isHaiku = targetModel.toLowerCase().includes("haiku");
     const hasThinking = "thinking" in parsed.rawBody;

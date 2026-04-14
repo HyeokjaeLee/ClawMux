@@ -7,6 +7,7 @@ import type {
 import type { ParsedResponse, StreamEvent } from "./response-types.ts";
 import { registerAdapter } from "./registry.ts";
 import { parseOpenAIBody } from "./openai-shared.ts";
+import { toOpenAITools } from "./tool-converter.ts";
 
 class OpenAIResponsesAdapter implements ApiAdapter {
   readonly apiType = "openai-responses" as const;
@@ -22,10 +23,14 @@ class OpenAIResponsesAdapter implements ApiAdapter {
     auth: AuthInfo,
   ): UpstreamRequest {
     const { rawBody } = parsed;
-    const upstreamBody = {
+    const upstreamBody: Record<string, unknown> = {
       ...rawBody,
       model: targetModel,
     };
+
+    if (upstreamBody.tools) {
+      upstreamBody.tools = toOpenAITools(upstreamBody.tools);
+    }
 
     return {
       url: `${baseUrl}/v1/responses`,

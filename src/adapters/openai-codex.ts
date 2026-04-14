@@ -8,6 +8,7 @@ import type { ParsedResponse, StreamEvent } from "./response-types.ts";
 import { registerAdapter } from "./registry.ts";
 import { parseOpenAIBody } from "./openai-shared.ts";
 import { openaiResponsesAdapter } from "./openai-responses.ts";
+import { toOpenAITools } from "./tool-converter.ts";
 
 class OpenAICodexAdapter implements ApiAdapter {
   readonly apiType = "openai-codex-responses" as const;
@@ -41,6 +42,10 @@ class OpenAICodexAdapter implements ApiAdapter {
 
     delete upstreamBody.max_tokens;
     delete upstreamBody.max_output_tokens;
+
+    if (upstreamBody.tools) {
+      upstreamBody.tools = toOpenAITools(upstreamBody.tools);
+    }
 
     return {
       url: `${baseUrl}/codex/responses`,

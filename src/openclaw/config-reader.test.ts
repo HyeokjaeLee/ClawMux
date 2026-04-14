@@ -82,26 +82,30 @@ describe("readOpenClawConfig", () => {
 
 describe("readAuthProfiles", () => {
   let tempDir: string;
+  let isolatedAgentsDir: string;
 
   afterEach(async () => {
     if (tempDir) await rm(tempDir, { recursive: true, force: true });
   });
 
-  test("returns empty array when file not found", async () => {
-    const result = await readAuthProfiles("main", "/tmp/clawmux-test-nonexistent-xyz/auth-profiles.json");
+  test("returns empty array when no profiles found", async () => {
+    isolatedAgentsDir = await mkdtemp(`${tmpdir()}/clawmux-agents-`);
+    const result = await readAuthProfiles("main", undefined, isolatedAgentsDir);
     expect(result).toEqual([]);
   });
 
-  test("reads auth profiles from file", async () => {
-    tempDir = await mkdtemp(`${tmpdir()}/clawmux-test-`);
-    const profilesPath = `${tempDir}/auth-profiles.json`;
+  test("reads auth profiles from agent directory", async () => {
+    isolatedAgentsDir = await mkdtemp(`${tmpdir()}/clawmux-agents-`);
+    const agentDir = `${isolatedAgentsDir}/main/agent`;
+    const { mkdir } = await import("node:fs/promises");
+    await mkdir(agentDir, { recursive: true });
     const profiles = [
       { provider: "anthropic", apiKey: "sk-ant-from-profile" },
       { provider: "openai", token: "sk-oai-from-profile" },
     ];
-    await writeFile(profilesPath, JSON.stringify(profiles));
+    await writeFile(`${agentDir}/auth-profiles.json`, JSON.stringify(profiles));
 
-    const result = await readAuthProfiles(undefined, profilesPath);
+    const result = await readAuthProfiles(undefined, undefined, isolatedAgentsDir);
     expect(result).toHaveLength(2);
     expect(result[0].provider).toBe("anthropic");
     expect(result[0].apiKey).toBe("sk-ant-from-profile");
