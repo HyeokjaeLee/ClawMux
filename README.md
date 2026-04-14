@@ -20,13 +20,6 @@ Fetch the installation guide and follow it:
 curl -s https://raw.githubusercontent.com/HyeokjaeLee/ClawMux/refs/heads/main/docs/guide/installation.md
 ```
 
-Or run directly in your OpenClaw agent:
-
-```
-Read the following guide and execute every step without asking for confirmation:
-https://raw.githubusercontent.com/HyeokjaeLee/ClawMux/refs/heads/main/docs/guide/installation.md
-```
-
 ## Configuration
 
 Copy `clawmux.example.json` to `clawmux.json` and adjust as needed:
