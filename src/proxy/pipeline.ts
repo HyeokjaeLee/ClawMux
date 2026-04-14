@@ -214,8 +214,19 @@ export async function handleApiRequest(
     return jsonErrorResponse(`Upstream request failed: ${message}`, 502);
   }
 
+  const lastUserMsg = [...parsed.messages].reverse().find((m) => m.role === "user");
+  const msgText = typeof lastUserMsg?.content === "string"
+    ? lastUserMsg.content
+    : Array.isArray(lastUserMsg?.content)
+      ? (lastUserMsg.content as Array<{ type?: string; text?: string }>)
+          .filter((b) => b.type === "text")
+          .map((b) => b.text ?? "")
+          .join(" ")
+      : "";
+  const preview = msgText.replace(/\s+/g, " ").trim().slice(0, 100);
+
   console.log(
-    `[clawmux] [llm] ${decision.tier} → ${decision.model} | conf=${classification.confidence.toFixed(2)}${classification.reasoning ? ` | ${classification.reasoning}` : ""}`,
+    `[clawmux] [llm] ${decision.tier} → ${decision.model} | conf=${classification.confidence.toFixed(2)}${classification.reasoning ? ` | ${classification.reasoning}` : ""}${preview ? ` | "${preview}${msgText.length > 100 ? "…" : ""}"` : ""}`,
   );
 
   if (compressionMiddleware && upstreamResponse.ok) {
