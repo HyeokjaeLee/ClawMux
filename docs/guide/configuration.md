@@ -2,15 +2,30 @@
 
 Follow these steps to complete model configuration.
 
-### Step 1: Discover Available Models
+### Step 1: Discover Authenticated Providers and Models
 
-Read the user's OpenClaw config to find which providers and models they have:
+Read the user's OpenClaw config and identify which providers have valid authentication:
 
 ```bash
 cat ~/.openclaw/openclaw.json
 ```
 
-Look at `models.providers` — each key is a provider name, and each provider has a `models` array with available model IDs.
+Look at `models.providers`. For each provider, check authentication fields:
+- `apiKey` field is present and non-empty
+- `auth` field is set (e.g., `"oauth"`, `"token"`)
+
+Also check agent-level overrides which may contain apiKey values that override the global config:
+
+```bash
+for f in ~/.openclaw/agents/*/agent/models.json; do echo "=== $f ==="; cat "$f"; done 2>/dev/null
+```
+
+**Only providers with confirmed authentication can be used as routing targets.**
+
+List the authenticated providers and their available model IDs. For any provider without auth, note it as unavailable and do NOT suggest its models.
+
+If no providers are authenticated, tell the user:
+> No authenticated providers found in your OpenClaw config. Please configure at least one provider with an API key before setting up ClawMux routing.
 
 ### Step 2: Ask the User About Model Assignment
 
@@ -23,7 +38,10 @@ Ask the user which models to use for each tier. Explain the tiers:
 | **HEAVY** | Architecture design, multi-domain analysis, debugging | Most capable (e.g., Opus, GPT-5.4) |
 | **compression.model** | Background summarization of long conversations | Same as LIGHT (fast and cheap) |
 
-If the user doesn't have a preference, recommend models based on their available providers.
+If the user doesn't have a preference, recommend models based on their **authenticated** providers only.
+
+**Before writing the config, verify each chosen model belongs to an authenticated provider.** If the user selects a model from a provider without authentication, warn them:
+> ⚠️ `{provider}/{model}` cannot be used — `{provider}` has no API key or auth configured in your OpenClaw config. Please choose a model from an authenticated provider, or add credentials for `{provider}` in OpenClaw first.
 
 ### Step 3: Write the Config
 
@@ -31,41 +49,27 @@ Edit `~/.openclaw/clawmux.json` with the user's choices. Model IDs use `provider
 
 ⚠️ **Do NOT use `clawmux` as a provider name in model IDs** — this causes infinite routing loops.
 
-Example for Anthropic-only:
+⚠️ **Only use models from providers confirmed to be authenticated in Step 1.** Using an unauthenticated provider will cause 401 errors at runtime.
+
+Example (use only as format reference — replace with the user's actual authenticated models):
 
 ```json
 {
   "compression": {
     "threshold": 0.75,
-    "model": "anthropic/claude-3-5-haiku-20241022"
+    "model": "{authenticated-provider}/{fast-model}"
   },
   "routing": {
     "models": {
-      "LIGHT": "anthropic/claude-3-5-haiku-20241022",
-      "MEDIUM": "anthropic/claude-sonnet-4-20250514",
-      "HEAVY": "anthropic/claude-opus-4-20250514"
+      "LIGHT": "{authenticated-provider}/{fast-model}",
+      "MEDIUM": "{authenticated-provider}/{balanced-model}",
+      "HEAVY": "{authenticated-provider}/{powerful-model}"
     }
   }
 }
 ```
 
-Example for cross-provider:
-
-```json
-{
-  "compression": {
-    "threshold": 0.75,
-    "model": "zai/glm-5"
-  },
-  "routing": {
-    "models": {
-      "LIGHT": "zai/glm-5",
-      "MEDIUM": "anthropic/claude-sonnet-4-20250514",
-      "HEAVY": "openai/gpt-5.4"
-    }
-  }
-}
-```
+After writing, confirm each model ID exactly matches a model listed under its provider in `openclaw.json`. If a model ID doesn't exist in the provider's `models` array, it will fail at runtime.
 
 ### Step 4: Sync OpenClaw Provider Format
 
@@ -83,10 +87,20 @@ This re-reads the MEDIUM model from `~/.openclaw/clawmux.json`, looks up its pro
 
 ```bash
 curl -s http://localhost:3456/health
-curl -s http://localhost:3456/stats
 ```
 
-If both return JSON, configuration is complete. Tell the user:
+Then send a real test request to confirm routing and authentication work end-to-end:
+
+```bash
+curl -s -X POST http://localhost:3456/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer test" \
+  -d '{"model":"auto","messages":[{"role":"user","content":"hi"}],"stream":false}'
+```
+
+Expected: a valid response from the LIGHT model. If you see a 401 error, the LIGHT model's provider is not authenticated — go back to Step 1 and verify auth. If you see a 502 error, the upstream provider is unreachable.
+
+If the test passes, tell the user:
 
 ```bash
 openclaw provider clawmux
@@ -139,21 +153,9 @@ Per-model context window overrides in tokens:
 
 ## Cross-Provider Routing
 
-Mix models from different providers. ClawMux translates formats automatically:
+Mix models from different providers. ClawMux translates formats automatically.
 
-```json
-{
-  "routing": {
-    "models": {
-      "LIGHT": "zai/glm-5",
-      "MEDIUM": "anthropic/claude-sonnet-4-20250514",
-      "HEAVY": "openai/gpt-5.4"
-    }
-  }
-}
-```
-
-All providers must be configured in your `openclaw.json`. Supported translation pairs: Anthropic, OpenAI, Google, Ollama, Bedrock (all combinations).
+All providers used must be configured **with valid authentication** in your `openclaw.json`. Supported translation pairs: Anthropic, OpenAI, Google, Ollama, Bedrock (all combinations).
 
 ## Context Window Resolution
 

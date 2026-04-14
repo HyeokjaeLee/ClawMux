@@ -60,10 +60,10 @@ curl -fsSL https://raw.githubusercontent.com/HyeokjaeLee/ClawMux/refs/heads/main
 ```
 
 The configuration guide will instruct you to:
-1. Read `~/.openclaw/openclaw.json` to discover the user's available providers and models
-2. Ask the user which models to assign to LIGHT / MEDIUM / HEAVY tiers
+1. Read `~/.openclaw/openclaw.json` and identify **authenticated** providers (those with `apiKey` or `auth` field)
+2. Ask the user which models to assign to LIGHT / MEDIUM / HEAVY tiers — only from authenticated providers
 3. Write the model mapping to `~/.openclaw/clawmux.json`
-4. Verify routing works
+4. Send a real test request to verify routing and authentication work end-to-end
 
 **Do not skip this step.** Without model configuration, ClawMux cannot route requests.
 
