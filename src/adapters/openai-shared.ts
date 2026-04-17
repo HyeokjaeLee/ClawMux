@@ -73,7 +73,7 @@ export function parseOpenAIBody(body: unknown): ParsedOpenAIBody {
 
   const stream = body.stream === true;
 
-  const rawMax = body.max_tokens ?? body.max_output_tokens;
+  const rawMax = body.max_tokens ?? body.max_output_tokens ?? body.max_completion_tokens;
   const maxTokens = typeof rawMax === "number" ? rawMax : undefined;
 
   const rawBody = { ...body } as Record<string, unknown>;

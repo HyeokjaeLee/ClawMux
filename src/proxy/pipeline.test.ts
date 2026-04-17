@@ -366,10 +366,9 @@ describe("handleApiRequest", () => {
     );
 
     expect(response.status).toBe(429);
-    const json = await response.json() as { type: string; error: { type: string; message: string } };
-    expect(json.type).toBe("error");
-    expect(json.error.type).toBe("api_error");
-    expect(json.error.message).toContain("429");
+    const json = await response.json() as { error: { type: string; message: string } };
+    expect(json.error.type).toBe("rate_limit_error");
+    expect(json.error.message).toBe("Too many requests");
 
     mockResponseStatus = 200;
     mockResponseBody = '{"id":"msg_test","content":[{"type":"text","text":"Hello!"}]}';

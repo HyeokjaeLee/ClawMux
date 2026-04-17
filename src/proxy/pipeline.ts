@@ -103,11 +103,25 @@ function jsonErrorResponse(message: string, status: number): Response {
   });
 }
 
+function tryParseJson(text: string): Record<string, unknown> | undefined {
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed === "object") return parsed as Record<string, unknown>;
+  } catch { /* ignore */ }
+  return undefined;
+}
+
 function upstreamErrorResponse(
   apiType: string,
   status: number,
   upstreamBody: string,
 ): Response {
+  const parsed = tryParseJson(upstreamBody);
+
+  if (parsed?.error || (parsed?.type === "error" && parsed.error)) {
+    return new Response(upstreamBody, { status, headers: { "content-type": "application/json" } });
+  }
+
   if (apiType === "anthropic-messages") {
     const body = JSON.stringify({
       type: "error",

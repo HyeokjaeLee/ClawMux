@@ -14,6 +14,34 @@ export function createStreamTranslator(
 
   let buffer = "";
   let messageStarted = false;
+  let messageStopped = false;
+
+  function emitEvent(event: StreamEvent, controller: TransformStreamDefaultController<Uint8Array>): void {
+    if (event.type === "message_start") {
+      messageStarted = true;
+    } else if (
+      !messageStarted &&
+      (event.type === "content_delta" || event.type === "content_stop")
+    ) {
+      messageStarted = true;
+      const synthetic = targetAdapter.buildStreamChunk!({
+        type: "message_start",
+        id: "",
+        model: "",
+      });
+      if (synthetic) controller.enqueue(encoder.encode(synthetic));
+    }
+
+    // Deduplicate message_stop: OpenAI streams emit it from both
+    // finish_reason and [DONE]. Only forward the first one.
+    if (event.type === "message_stop") {
+      if (messageStopped) return;
+      messageStopped = true;
+    }
+
+    const translated = targetAdapter.buildStreamChunk!(event);
+    controller.enqueue(encoder.encode(translated));
+  }
 
   return new TransformStream<Uint8Array, Uint8Array>({
     transform(chunk, controller) {
@@ -33,23 +61,7 @@ export function createStreamTranslator(
 
         const events = sourceAdapter.parseStreamChunk(frame);
         for (const event of events) {
-          if (event.type === "message_start") {
-            messageStarted = true;
-          } else if (
-            !messageStarted &&
-            (event.type === "content_delta" || event.type === "content_stop")
-          ) {
-            messageStarted = true;
-            const synthetic = targetAdapter.buildStreamChunk({
-              type: "message_start",
-              id: "",
-              model: "",
-            });
-            if (synthetic) controller.enqueue(encoder.encode(synthetic));
-          }
-
-          const translated = targetAdapter.buildStreamChunk(event);
-          controller.enqueue(encoder.encode(translated));
+          emitEvent(event, controller);
         }
       }
     },
@@ -62,23 +74,7 @@ export function createStreamTranslator(
       ) {
         const events = sourceAdapter.parseStreamChunk(buffer);
         for (const event of events) {
-          if (event.type === "message_start") {
-            messageStarted = true;
-          } else if (
-            !messageStarted &&
-            (event.type === "content_delta" || event.type === "content_stop")
-          ) {
-            messageStarted = true;
-            const synthetic = targetAdapter.buildStreamChunk({
-              type: "message_start",
-              id: "",
-              model: "",
-            });
-            if (synthetic) controller.enqueue(encoder.encode(synthetic));
-          }
-
-          const translated = targetAdapter.buildStreamChunk(event);
-          controller.enqueue(encoder.encode(translated));
+          emitEvent(event, controller);
         }
       }
     },
