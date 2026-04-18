@@ -6,14 +6,26 @@ import { createSessionStore, generateSessionId } from "../compression/session-st
 import { createCompressionWorker, truncateToFit } from "../compression/worker.ts";
 import { estimateMessagesTokens } from "../utils/token-estimator.ts";
 import type { Message } from "../utils/token-estimator.ts";
+import {
+  collectStreamToResponse,
+  isStreamContentType,
+} from "../adapters/stream-collector.ts";
 
 const HARD_CEILING_RATIO = 0.9;
+
+export interface ResolvedCompressionTarget {
+  adapter: ApiAdapter;
+  baseUrl: string;
+  auth: AuthInfo;
+  actualModelId: string;
+}
 
 export interface CompressionMiddlewareConfig {
   threshold: number;
   targetRatio: number;
   compressionModel: string;
   resolvedContextWindow: number;
+  resolvedTarget?: ResolvedCompressionTarget;
   maxSessions?: number;
   statsTracker?: StatsTracker;
 }
@@ -30,7 +42,7 @@ export interface SummaryData {
 
 export interface CompressionMiddleware {
   beforeForward(parsed: ParsedRequest, adapter: ApiAdapter): BeforeForwardResult;
-  afterResponse(parsed: ParsedRequest, adapter: ApiAdapter, baseUrl: string, auth: AuthInfo): void;
+  afterResponse(parsed: ParsedRequest): void;
   getSessionStore(): SessionStore;
   getWorker(): CompressionWorker;
   getSummaryForSession(messages: Array<{ role: string; content: unknown }>): SummaryData | undefined;
@@ -74,15 +86,8 @@ function extractResponseText(responseBody: string): string {
 }
 
 function createMakeApiCall(
-  adapter: ApiAdapter,
-  compressionModel: string,
-  baseUrl: string,
-  auth: AuthInfo,
+  target: ResolvedCompressionTarget,
 ): MakeApiCall {
-  const actualModelId = compressionModel.includes("/")
-    ? compressionModel.split("/").slice(1).join("/")
-    : compressionModel;
-
   return async (
     model: string,
     messages: Array<{ role: string; content: string }>,
@@ -100,11 +105,11 @@ function createMakeApiCall(
       },
     };
 
-    const upstream = adapter.buildUpstreamRequest(
+    const upstream = target.adapter.buildUpstreamRequest(
       syntheticParsed,
-      actualModelId,
-      baseUrl,
-      auth,
+      target.actualModelId,
+      target.baseUrl,
+      target.auth,
     );
 
     const response = await fetch(upstream.url, {
@@ -113,9 +118,34 @@ function createMakeApiCall(
       body: upstream.body,
     });
 
-    const body = await response.text();
     if (!response.ok) {
-      throw new Error(`Compression API call failed: ${response.status} ${body}`);
+      const errorBody = await response.text();
+      const err = new Error(
+        `Compression API call failed: ${response.status} ${errorBody}`,
+      ) as Error & { status?: number };
+      err.status = response.status;
+      throw err;
+    }
+
+    const contentType = response.headers.get("content-type") ?? "";
+    if (
+      isStreamContentType(contentType) &&
+      typeof target.adapter.parseStreamChunk === "function"
+    ) {
+      const collected = await collectStreamToResponse(target.adapter, response);
+      return collected.content;
+    }
+
+    const body = await response.text();
+    if (body.trimStart().startsWith("data:")) {
+      if (typeof target.adapter.parseStreamChunk === "function") {
+        const streamResponse = new Response(body);
+        const collected = await collectStreamToResponse(
+          target.adapter,
+          streamResponse,
+        );
+        return collected.content;
+      }
     }
 
     return extractResponseText(body);
@@ -189,18 +219,15 @@ export function createCompressionMiddleware(
     return { messages, wasCompressed: false };
   }
 
-  function afterResponse(
-    parsed: ParsedRequest,
-    adapter: ApiAdapter,
-    baseUrl: string,
-    auth: AuthInfo,
-  ): void {
+  function afterResponse(parsed: ParsedRequest): void {
     const messages = parsed.messages;
 
     if (messages.length <= 1) return;
 
     const sessionId = generateSessionId(messages);
     const session = sessionStore.getOrCreate(sessionId, messages);
+
+    if (session.compressionState === "disabled") return;
 
     const tokenCount = estimateMessagesTokens(messagesToTokenMessages(messages));
     sessionStore.update(sessionId, {
@@ -210,21 +237,28 @@ export function createCompressionMiddleware(
 
     const updatedSession = sessionStore.get(sessionId);
     if (!updatedSession) return;
+    if (updatedSession.compressionState === "disabled") return;
 
-    if (worker.shouldCompress(updatedSession)) {
-      const makeApiCall = createMakeApiCall(
-        adapter,
-        config.compressionModel,
-        baseUrl,
-        auth,
+    if (!worker.shouldCompress(updatedSession)) return;
+
+    if (!config.resolvedTarget) {
+      console.warn(
+        `[compression] Cannot compress session ${sessionId}: compression model "${config.compressionModel}" could not be resolved to a provider/auth. Compression disabled for this session.`,
       );
-
-      worker.triggerCompression(updatedSession, sessionStore, makeApiCall);
-
-      console.log(
-        `[compression] Triggered background compression for session ${sessionId} (${tokenCount} tokens)`,
-      );
+      sessionStore.update(sessionId, {
+        compressionState: "disabled",
+        disabledReason: `compression model "${config.compressionModel}" not resolved`,
+      });
+      return;
     }
+
+    const makeApiCall = createMakeApiCall(config.resolvedTarget);
+
+    worker.triggerCompression(updatedSession, sessionStore, makeApiCall);
+
+    console.log(
+      `[compression] Triggered background compression for session ${sessionId} (${tokenCount} tokens) via ${config.compressionModel}`,
+    );
   }
 
   function getSummaryForSession(

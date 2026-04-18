@@ -155,8 +155,9 @@ let extractorPromise: Promise<FeatureExtractionPipeline> | null = null;
 
 function getExtractor(): Promise<FeatureExtractionPipeline> {
   if (!extractorPromise) {
-    console.log("[clawmux] Loading embedding model...");
-    extractorPromise = pipeline("feature-extraction", MODEL_ID).then((pipe) => {
+    const dtype = (process.env.CLAWMUX_EMBEDDING_DTYPE ?? "fp16") as "fp32" | "fp16" | "q8" | "q4";
+    console.log(`[clawmux] Loading embedding model (dtype=${dtype})...`);
+    extractorPromise = pipeline("feature-extraction", MODEL_ID, { dtype }).then((pipe) => {
       console.log("[clawmux] Embedding model loaded");
       return pipe as FeatureExtractionPipeline;
     });

@@ -129,9 +129,10 @@ export class GoogleGenerativeAIAdapter implements ApiAdapter {
     baseUrl: string,
     auth: AuthInfo,
   ): UpstreamRequest {
+    const normalizedBase = baseUrl.replace(/\/+$/, "");
     const endpoint = parsed.stream
-      ? `${baseUrl}/v1beta/models/${targetModel}:streamGenerateContent?alt=sse`
-      : `${baseUrl}/v1beta/models/${targetModel}:generateContent`;
+      ? `${normalizedBase}/v1beta/models/${targetModel}:streamGenerateContent?alt=sse`
+      : `${normalizedBase}/v1beta/models/${targetModel}:generateContent`;
 
     const contents = messagesToContents(parsed.messages);
 

@@ -21,7 +21,7 @@ export async function bootstrap(portOverride?: number): Promise<void> {
   const authProfiles = await readAuthProfiles();
   const piAiCatalog = await loadPiAiCatalog();
 
-  const compressionMiddleware = createResolvedCompressionMiddleware(config, openclawConfig, piAiCatalog);
+  const compressionMiddleware = createResolvedCompressionMiddleware(config, openclawConfig, authProfiles, piAiCatalog);
   setupPipelineRoutes(config, openclawConfig, authProfiles, compressionMiddleware);
 
   const port = portOverride ?? parseInt(process.env.CLAWMUX_PORT ?? "3456", 10);
@@ -32,7 +32,7 @@ export async function bootstrap(portOverride?: number): Promise<void> {
   const watcher = createConfigWatcher(configPath, (newConfig) => {
     console.log("[clawmux] Config reloaded, updating routes...");
     clearCustomHandlers();
-    const newCompression = createResolvedCompressionMiddleware(newConfig, openclawConfig, piAiCatalog);
+    const newCompression = createResolvedCompressionMiddleware(newConfig, openclawConfig, authProfiles, piAiCatalog);
     setupPipelineRoutes(newConfig, openclawConfig, authProfiles, newCompression);
   });
   watcher.start();

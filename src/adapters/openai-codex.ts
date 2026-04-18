@@ -8,50 +8,25 @@ import type { ParsedResponse, StreamEvent } from "./response-types.ts";
 import { registerAdapter } from "./registry.ts";
 import { parseOpenAIBody } from "./openai-shared.ts";
 import { openaiResponsesAdapter } from "./openai-responses.ts";
+import { toResponsesInput } from "./openai-responses-shared.ts";
+import { toCodexResponsesTools } from "./tool-converter.ts";
+import * as os from "node:os";
 
-
-const CONTENT_TYPE_MAP: Record<string, string> = {
-  text: "input_text",
-  image_url: "input_image",
-};
-
-function convertContentPart(part: Record<string, unknown>): Record<string, unknown> {
-  const partType = String(part.type ?? "");
-  const mapped = CONTENT_TYPE_MAP[partType];
-  if (mapped) {
-    return { ...part, type: mapped };
-  }
-  return part;
+function resolveCodexUrl(baseUrl: string): string {
+  const DEFAULT = "https://chatgpt.com/backend-api";
+  const raw = baseUrl && baseUrl.trim().length > 0 ? baseUrl : DEFAULT;
+  const normalized = raw.replace(/\/+$/, "");
+  if (normalized.endsWith("/codex/responses")) return normalized;
+  if (normalized.endsWith("/codex")) return `${normalized}/responses`;
+  return `${normalized}/codex/responses`;
 }
 
-const STRIP_KEYS = new Set(["tool_calls", "tool_call_id", "name", "function_call"]);
-
-function toResponsesInput(
-  messages: Array<Record<string, unknown>>,
-): Array<Record<string, unknown>> {
-  return messages
-    .filter((msg) => msg.role !== "tool")
-    .map((msg) => {
-      const cleaned: Record<string, unknown> = {};
-      for (const [key, value] of Object.entries(msg)) {
-        if (!STRIP_KEYS.has(key)) {
-          cleaned[key] = value;
-        }
-      }
-
-      const content = cleaned.content;
-      if (Array.isArray(content)) {
-        cleaned.content = content.map((part: unknown) => {
-          if (typeof part === "object" && part !== null) {
-            return convertContentPart(part as Record<string, unknown>);
-          }
-          return part;
-        });
-      }
-
-      return cleaned;
-    })
-    .filter((msg) => msg.content != null);
+function buildPiUserAgent(): string {
+  try {
+    return `pi (${os.platform()} ${os.release()}; ${os.arch()})`;
+  } catch {
+    return "pi (browser)";
+  }
 }
 
 class OpenAICodexAdapter implements ApiAdapter {
@@ -73,30 +48,60 @@ class OpenAICodexAdapter implements ApiAdapter {
     const input = Array.isArray(rawInput) ? toResponsesInput(rawInput) : rawInput;
     const instructions = rawBody.instructions ?? rawBody.system ?? parsed.system ?? "You are a helpful assistant.";
 
+    const verbosity = (
+      rawBody.text && typeof rawBody.text === "object"
+        ? (rawBody.text as Record<string, unknown>).verbosity
+        : undefined
+    ) ?? rawBody.text_verbosity ?? rawBody.verbosity ?? "medium";
+
+    const sessionId = (rawBody.session_id ?? rawBody.sessionId ?? rawBody.prompt_cache_key) as string | undefined;
+
     const upstreamBody: Record<string, unknown> = {
       model: targetModel,
-      input,
-      instructions,
-      stream: true,
       store: false,
+      stream: true,
+      instructions,
+      input,
+      text: { verbosity },
+      include: ["reasoning.encrypted_content"],
+      tool_choice: "auto",
+      parallel_tool_calls: true,
     };
 
-    const CODEX_SAMPLING_KEYS = [
-      "temperature", "top_p",
-    ] as const;
-    for (const key of CODEX_SAMPLING_KEYS) {
-      if (key in rawBody) {
-        upstreamBody[key] = rawBody[key];
-      }
+    if (sessionId) {
+      upstreamBody.prompt_cache_key = sessionId;
+    }
+
+    if (typeof rawBody.temperature === "number") {
+      upstreamBody.temperature = rawBody.temperature;
+    }
+
+    if (Array.isArray(rawBody.tools) && rawBody.tools.length > 0) {
+      upstreamBody.tools = toCodexResponsesTools(rawBody.tools);
+    }
+
+    if (rawBody.reasoning && typeof rawBody.reasoning === "object") {
+      upstreamBody.reasoning = rawBody.reasoning;
+    }
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${auth.apiKey}`,
+      "chatgpt-account-id": auth.accountId ?? "",
+      "OpenAI-Beta": "responses=experimental",
+      "originator": "pi",
+      "User-Agent": buildPiUserAgent(),
+      "accept": "text/event-stream",
+    };
+
+    if (sessionId) {
+      headers["session_id"] = sessionId;
     }
 
     return {
-      url: `${baseUrl}/codex/responses`,
+      url: resolveCodexUrl(baseUrl),
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${auth.apiKey}`,
-      },
+      headers,
       body: JSON.stringify(upstreamBody),
     };
   }

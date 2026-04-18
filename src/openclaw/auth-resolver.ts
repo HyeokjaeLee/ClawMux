@@ -25,7 +25,11 @@ function getEnvFallback(provider: string): string | undefined {
   return undefined;
 }
 
-function formatAuth(apiKey: string, providerConfig: OpenClawProviderConfig | undefined): ResolvedAuth {
+function formatAuth(
+  apiKey: string,
+  providerConfig: OpenClawProviderConfig | undefined,
+  accountId?: string,
+): ResolvedAuth {
   const api = providerConfig?.api ?? "";
 
   if (api === "anthropic-messages") {
@@ -34,6 +38,15 @@ function formatAuth(apiKey: string, providerConfig: OpenClawProviderConfig | und
 
   if (api === "openai-completions" || api === "openai-responses") {
     return { apiKey, headerName: "Authorization", headerValue: `Bearer ${apiKey}` };
+  }
+
+  if (api === "openai-codex-responses") {
+    return {
+      apiKey,
+      headerName: "Authorization",
+      headerValue: `Bearer ${apiKey}`,
+      accountId,
+    };
   }
 
   if (api === "google-generative-ai") {
@@ -77,14 +90,16 @@ export function resolveApiKey(
     return { apiKey: "ollama-local", headerName: "", headerValue: "" };
   }
 
-  for (const profile of authProfiles) {
-    if (profile.provider === provider) {
-      const key = profile.apiKey ?? profile.token;
-      if (key) {
-        const resolved = resolveEnvVar(key);
-        if (resolved) {
-          return formatAuth(resolved, providerConfig);
-        }
+  const matchingProfiles = authProfiles
+    .filter((p) => p.provider === provider)
+    .sort((a, b) => Number(!!b.accountId) - Number(!!a.accountId));
+
+  for (const profile of matchingProfiles) {
+    const key = profile.apiKey ?? profile.token;
+    if (key) {
+      const resolved = resolveEnvVar(key);
+      if (resolved) {
+        return formatAuth(resolved, providerConfig, profile.accountId);
       }
     }
   }
@@ -99,6 +114,11 @@ export function resolveApiKey(
   const envKey = getEnvFallback(provider);
   if (envKey) {
     return formatAuth(envKey, providerConfig);
+  }
+
+  const OAUTH_ONLY_APIS = new Set(["openai-codex-responses"]);
+  if (api && OAUTH_ONLY_APIS.has(api)) {
+    return formatAuth("", providerConfig);
   }
 
   return undefined;

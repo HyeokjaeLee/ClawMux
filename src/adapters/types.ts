@@ -22,6 +22,7 @@ export interface AuthInfo {
   awsSecretKey?: string;
   awsSessionToken?: string;
   awsRegion?: string;
+  accountId?: string;
 }
 
 import type { ParsedResponse, StreamEvent } from "./response-types.ts";

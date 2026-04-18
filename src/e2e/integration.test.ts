@@ -1,3 +1,4 @@
+process.env.CLAWMUX_PIAI = "0";
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { createServer } from "../proxy/server.ts";
 import { setupPipelineRoutes } from "../proxy/pipeline.ts";

@@ -27,9 +27,24 @@ const MAX_QUALITY_RETRIES = 3;
 const BASE_RETRY_DELAY_MS = 500;
 const MAX_RETRY_DELAY_MS = 5000;
 
+const TERMINAL_STATUS_CODES = new Set([400, 401, 403, 404, 422]);
+
 function retryDelayMs(attempt: number): number {
   const jitter = Math.random() * 500;
   return Math.min(BASE_RETRY_DELAY_MS * 2 ** attempt + jitter, MAX_RETRY_DELAY_MS);
+}
+
+function isTerminalError(err: Error): boolean {
+  const withStatus = err as Error & { status?: number };
+  if (typeof withStatus.status === "number") {
+    return TERMINAL_STATUS_CODES.has(withStatus.status);
+  }
+  const match = err.message.match(/^Compression API call failed: (\d{3})(?:\s|$)/);
+  if (match) {
+    const code = Number(match[1]);
+    return TERMINAL_STATUS_CODES.has(code);
+  }
+  return false;
 }
 
 async function withRetry<T>(
@@ -43,6 +58,7 @@ async function withRetry<T>(
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
       if (lastError.message === "compression_timeout") throw lastError;
+      if (isTerminalError(lastError)) throw lastError;
       if (attempt < maxRetries - 1) {
         await new Promise((r) => setTimeout(r, retryDelayMs(attempt)));
       }
@@ -220,6 +236,19 @@ export function createCompressionWorker(
           }
           activeJobs--;
           completedJobs++;
+        } else if (isTerminalError(error)) {
+          sessionStore.update(sessionId, {
+            compressionState: "disabled",
+            disabledReason: error.message,
+          });
+          session.compressionState = "disabled";
+          session.disabledReason = error.message;
+          activeJobs--;
+          failedJobs++;
+          console.error(
+            `[CompressionWorker] Session ${sessionId} permanently disabled due to terminal error:`,
+            error.message,
+          );
         } else {
           sessionStore.update(sessionId, { compressionState: "idle" });
           session.compressionState = "idle";

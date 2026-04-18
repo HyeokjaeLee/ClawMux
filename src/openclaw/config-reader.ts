@@ -48,6 +48,22 @@ export function getAuthProfilesPath(agentId?: string): string {
   return join(getHomeDir(), ".openclaw", "agents", id, "agent", "auth-profiles.json");
 }
 
+function extractAccountIds(text: string, out: Map<string, string>): void {
+  try {
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== "object" || !parsed.profiles) return;
+    for (const profile of Object.values(parsed.profiles as Record<string, Record<string, unknown>>)) {
+      const provider = profile.provider as string;
+      const accountId = profile.accountId as string;
+      if (provider && accountId) {
+        out.set(provider, accountId);
+      }
+    }
+  } catch {
+    // skip invalid files
+  }
+}
+
 function parseAuthProfilesFile(text: string): AuthProfile[] {
   try {
     const parsed = JSON.parse(text);
@@ -60,6 +76,7 @@ function parseAuthProfilesFile(text: string): AuthProfile[] {
           provider: (profile.provider as string) ?? key.split(":")[0],
           apiKey: (profile.access as string) ?? (profile.apiKey as string) ?? (profile.key as string),
           token: (profile.token as string),
+          accountId: (profile.accountId as string),
         }))
         .filter((p) => {
           const token = p.apiKey ?? p.token;
@@ -107,23 +124,28 @@ export async function readAuthProfiles(_agentId?: string, _profilesPath?: string
     }
   }
 
-  // Read "main" first as baseline, then all others
   const ordered = ["main", ...agentDirs.filter((d) => d !== "main")];
 
-  // Use Map for dedup: provider -> AuthProfile (last write wins)
   const merged = new Map<string, AuthProfile>();
+  const accountIds = new Map<string, string>();
 
   for (const agentId of ordered) {
     const profilePath = join(agentsDir, agentId, "agent", "auth-profiles.json");
     try {
       const text = await readFile(profilePath, "utf-8");
+      extractAccountIds(text, accountIds);
       const profiles = parseAuthProfilesFile(text);
       for (const p of profiles) {
-        // Key by provider — later agents override earlier ones
         merged.set(p.provider, p);
       }
     } catch {
       // skip missing/unreadable files
+    }
+  }
+
+  for (const [provider, profile] of merged) {
+    if (!profile.accountId && accountIds.has(provider)) {
+      profile.accountId = accountIds.get(provider);
     }
   }
 

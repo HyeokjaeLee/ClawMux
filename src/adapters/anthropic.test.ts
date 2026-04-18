@@ -110,13 +110,14 @@ describe("AnthropicAdapter", () => {
       expect(result.headers["x-api-key"]).toBe("sk-test-key");
       expect(result.headers["anthropic-version"]).toBe("2023-06-01");
       expect(result.headers["content-type"]).toBe("application/json");
-      expect(result.headers["anthropic-beta"]).toBeUndefined();
+      expect(result.headers["anthropic-beta"]).toBe("fine-grained-tool-streaming-2025-05-14");
+      expect(result.headers["anthropic-dangerous-direct-browser-access"]).toBe("true");
 
       const body = JSON.parse(result.body);
       expect(body.model).toBe("claude-sonnet-4-20250514");
     });
 
-    it("adds anthropic-beta header when thinking param is present", () => {
+    it("adds interleaved-thinking beta when thinking param is present", () => {
       const parsed: ParsedRequest = {
         model: "claude-sonnet-4-20250514",
         messages: [{ role: "user", content: "Think about this" }],
@@ -138,13 +139,14 @@ describe("AnthropicAdapter", () => {
         baseAuth,
       );
 
-      expect(result.headers["anthropic-beta"]).toBe("interleaved-thinking-2025-05-14");
+      expect(result.headers["anthropic-beta"]).toContain("interleaved-thinking-2025-05-14");
+      expect(result.headers["anthropic-beta"]).toContain("fine-grained-tool-streaming-2025-05-14");
 
       const body = JSON.parse(result.body);
       expect(body.thinking).toEqual({ type: "enabled", budget_tokens: 10000 });
     });
 
-    it("strips thinking and omits anthropic-beta for haiku models", () => {
+    it("keeps fine-grained-tool-streaming beta but strips thinking for haiku models", () => {
       const parsed: ParsedRequest = {
         model: "claude-sonnet-4-20250514",
         messages: [{ role: "user", content: "Quick question" }],
@@ -166,7 +168,7 @@ describe("AnthropicAdapter", () => {
         baseAuth,
       );
 
-      expect(result.headers["anthropic-beta"]).toBeUndefined();
+      expect(result.headers["anthropic-beta"]).toBe("fine-grained-tool-streaming-2025-05-14");
 
       const body = JSON.parse(result.body);
       expect(body.thinking).toBeUndefined();

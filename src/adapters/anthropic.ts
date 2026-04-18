@@ -31,24 +31,40 @@ export class AnthropicAdapter implements ApiAdapter {
     baseUrl: string,
     auth: AuthInfo,
   ): UpstreamRequest {
-    const url = `${baseUrl}/v1/messages`;
+    const url = `${baseUrl.replace(/\/+$/, "")}/v1/messages`;
 
-    const headers: Record<string, string> = {
-      "x-api-key": auth.apiKey,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    };
-
+    const isOAuthToken = typeof auth.apiKey === "string" && auth.apiKey.includes("sk-ant-oat");
     const isHaiku = targetModel.toLowerCase().includes("haiku");
     const hasThinking = "thinking" in parsed.rawBody;
 
+    const betaFeatures: string[] = ["fine-grained-tool-streaming-2025-05-14"];
     if (hasThinking && !isHaiku) {
-      headers["anthropic-beta"] = "interleaved-thinking-2025-05-14";
+      betaFeatures.push("interleaved-thinking-2025-05-14");
+    }
+    const claudeCodeBetas = isOAuthToken
+      ? ["claude-code-20250219", "oauth-2025-04-20"]
+      : [];
+    const allBetas = [...claudeCodeBetas, ...betaFeatures];
+
+    const headers: Record<string, string> = {
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+      "accept": "application/json",
+      "anthropic-dangerous-direct-browser-access": "true",
+      "anthropic-beta": allBetas.join(","),
+    };
+
+    if (isOAuthToken) {
+      headers["Authorization"] = `Bearer ${auth.apiKey}`;
+      headers["user-agent"] = "claude-cli/1.0.0 (external, cli)";
+      headers["x-app"] = "cli";
+    } else {
+      headers["x-api-key"] = auth.apiKey;
     }
 
     const ANTHROPIC_SAMPLING_KEYS = [
       "temperature", "top_p", "top_k", "stop_sequences",
-      "metadata", "service_tier",
+      "metadata", "service_tier", "tool_choice",
     ] as const;
 
     const samplingParams: Record<string, unknown> = {};
@@ -58,19 +74,28 @@ export class AnthropicAdapter implements ApiAdapter {
       }
     }
 
-    let bodyObj: Record<string, unknown> = {
+    const bodyObj: Record<string, unknown> = {
       model: targetModel,
       messages: parsed.messages,
-      stream: parsed.stream,
+      stream: true,
       ...samplingParams,
     };
 
     if (parsed.system !== undefined) {
       bodyObj.system = parsed.system;
+    } else if (isOAuthToken) {
+      bodyObj.system = [
+        {
+          type: "text",
+          text: "You are Claude Code, Anthropic's official CLI for Claude.",
+        },
+      ];
     }
 
     if (parsed.maxTokens !== undefined) {
       bodyObj.max_tokens = parsed.maxTokens;
+    } else {
+      bodyObj.max_tokens = 32000;
     }
 
     if (parsed.rawBody.tools) {

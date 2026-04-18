@@ -504,4 +504,113 @@ describe("CompressionWorker", () => {
       expect(session.compressedMessages!.length).toBeGreaterThan(0);
     });
   });
+
+  describe("terminal error handling", () => {
+    test("marks session disabled on 403 Cloudflare (no retry)", async () => {
+      const worker = createCompressionWorker(makeConfig());
+      const session = makeSession({ tokenCount: 800, id: "403-session" });
+      const store = makeStore(session);
+
+      let callCount = 0;
+      const makeApiCall: MakeApiCall = mock(async () => {
+        callCount++;
+        const err = new Error("Compression API call failed: 403 <html>cloudflare</html>") as Error & { status?: number };
+        err.status = 403;
+        throw err;
+      });
+
+      worker.triggerCompression(session, store, makeApiCall);
+      await new Promise((r) => setTimeout(r, 200));
+
+      const stored = store.get(session.id);
+      expect(stored).toBeDefined();
+      expect(stored!.compressionState).toBe("disabled");
+      expect(stored!.disabledReason).toContain("403");
+      expect(callCount).toBe(1);
+    });
+
+    test("marks session disabled on 400 unknown_parameter (no retry)", async () => {
+      const worker = createCompressionWorker(makeConfig());
+      const session = makeSession({ tokenCount: 800, id: "400-session" });
+      const store = makeStore(session);
+
+      let callCount = 0;
+      const makeApiCall: MakeApiCall = mock(async () => {
+        callCount++;
+        throw new Error("Compression API call failed: 400 {\"error\":\"Unknown parameter: 'input[176].reasoning_content'\"}");
+      });
+
+      worker.triggerCompression(session, store, makeApiCall);
+      await new Promise((r) => setTimeout(r, 200));
+
+      const stored = store.get(session.id);
+      expect(stored!.compressionState).toBe("disabled");
+      expect(callCount).toBe(1);
+    });
+
+    test("retries on transient 500 errors", async () => {
+      const worker = createCompressionWorker(makeConfig());
+      const session = makeSession({ tokenCount: 800, id: "500-session" });
+      const store = makeStore(session);
+
+      let callCount = 0;
+      const makeApiCall: MakeApiCall = mock(async () => {
+        callCount++;
+        throw new Error("Upstream 500 transient");
+      });
+
+      worker.triggerCompression(session, store, makeApiCall);
+      await new Promise((r) => setTimeout(r, 8000));
+
+      expect(callCount).toBeGreaterThan(1);
+      const stored = store.get(session.id);
+      expect(stored!.compressionState).toBe("idle");
+    }, 15000);
+
+    test("shouldCompress returns false for disabled sessions", () => {
+      const worker = createCompressionWorker(makeConfig());
+      const session = makeSession({
+        tokenCount: 900,
+        compressionState: "disabled",
+      });
+      expect(worker.shouldCompress(session)).toBe(false);
+    });
+
+    test("does not false-positive terminal when 500 body embeds '400' text", async () => {
+      const worker = createCompressionWorker(makeConfig());
+      const session = makeSession({ tokenCount: 800, id: "false-pos-session" });
+      const store = makeStore(session);
+
+      let callCount = 0;
+      const makeApiCall: MakeApiCall = mock(async () => {
+        callCount++;
+        throw new Error('Upstream 500: previous attempt returned "400 Bad Request"');
+      });
+
+      worker.triggerCompression(session, store, makeApiCall);
+      await new Promise((r) => setTimeout(r, 8000));
+
+      expect(callCount).toBeGreaterThan(1);
+      const stored = store.get(session.id);
+      expect(stored!.compressionState).not.toBe("disabled");
+    }, 15000);
+
+    test("prefers err.status over message regex", async () => {
+      const worker = createCompressionWorker(makeConfig());
+      const session = makeSession({ tokenCount: 800, id: "status-priority" });
+      const store = makeStore(session);
+
+      const makeApiCall: MakeApiCall = mock(async () => {
+        const err = new Error("Compression API call failed: 500 transient") as Error & { status?: number };
+        err.status = 500;
+        throw err;
+      });
+
+      worker.triggerCompression(session, store, makeApiCall);
+      await new Promise((r) => setTimeout(r, 8000));
+
+      const stored = store.get(session.id);
+      expect(stored!.compressionState).not.toBe("disabled");
+    }, 15000);
+  });
 });

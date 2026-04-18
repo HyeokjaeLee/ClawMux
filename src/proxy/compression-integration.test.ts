@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from "bun:test";
+import { describe, expect, it, beforeEach, afterEach } from "bun:test";
 import type { ApiAdapter, AuthInfo, ParsedRequest, UpstreamRequest } from "../adapters/types.ts";
 import type { Session } from "../compression/types.ts";
 import { createCompressionMiddleware } from "./compression-integration.ts";
@@ -51,13 +51,26 @@ const TEST_AUTH: AuthInfo = {
   headerValue: "test-key",
 };
 
-const BASE_CONFIG: CompressionMiddlewareConfig = {
-  threshold: 0.75,
-  targetRatio: 0.6,
-  compressionModel: "test-compression-model",
-  resolvedContextWindow: 1000,
-  maxSessions: 10,
-};
+function makeBaseConfig(target?: ApiAdapter): CompressionMiddlewareConfig {
+  const resolvedTarget = target
+    ? {
+        adapter: target,
+        baseUrl: "http://compression.test",
+        auth: TEST_AUTH,
+        actualModelId: "compression-model",
+      }
+    : undefined;
+  return {
+    threshold: 0.75,
+    targetRatio: 0.6,
+    compressionModel: "test-compression-model",
+    resolvedContextWindow: 1000,
+    resolvedTarget,
+    maxSessions: 10,
+  };
+}
+
+const BASE_CONFIG: CompressionMiddlewareConfig = makeBaseConfig();
 
 function makeParsed(messages: Array<{ role: string; content: string }>): ParsedRequest {
   return {
@@ -206,7 +219,7 @@ describe("createCompressionMiddleware", () => {
       ];
       const parsed = makeParsed(messages);
 
-      middleware.afterResponse(parsed, adapter, "http://localhost:3000", TEST_AUTH);
+      middleware.afterResponse(parsed);
 
       const store = middleware.getSessionStore();
       const sessionId = "session-" + String(hashContent("Hello world this is a test message"));
@@ -218,6 +231,33 @@ describe("createCompressionMiddleware", () => {
     });
 
     it("triggers compression when threshold exceeded", async () => {
+      const targetAdapter = createMockAdapter();
+      const middlewareWithTarget = createCompressionMiddleware(makeBaseConfig(targetAdapter));
+      const longContent = "x".repeat(4000);
+      const messages = [
+        { role: "user", content: longContent },
+        { role: "assistant", content: longContent },
+      ];
+      const parsed = makeParsed(messages);
+
+      const store = middlewareWithTarget.getSessionStore();
+      const sessionId = "session-" + String(hashContent(longContent));
+      store.set(sessionId, {
+        id: sessionId,
+        messages,
+        tokenCount: 800,
+        compressionState: "idle",
+        lastAccess: Date.now(),
+      });
+
+      middlewareWithTarget.afterResponse(parsed);
+
+      const session = store.get(sessionId);
+      expect(session).toBeDefined();
+      expect(session!.compressionState).toBe("computing");
+    });
+
+    it("disables session when compression model cannot be resolved", () => {
       const longContent = "x".repeat(4000);
       const messages = [
         { role: "user", content: longContent },
@@ -235,17 +275,43 @@ describe("createCompressionMiddleware", () => {
         lastAccess: Date.now(),
       });
 
-      middleware.afterResponse(parsed, adapter, "http://localhost:3000", TEST_AUTH);
+      middleware.afterResponse(parsed);
 
       const session = store.get(sessionId);
-      expect(session).toBeDefined();
-      expect(session!.compressionState).toBe("computing");
+      expect(session!.compressionState).toBe("disabled");
+      expect(session!.disabledReason).toContain("not resolved");
+    });
+
+    it("does not re-trigger compression on disabled sessions", () => {
+      const longContent = "x".repeat(4000);
+      const messages = [
+        { role: "user", content: longContent },
+        { role: "assistant", content: longContent },
+      ];
+      const parsed = makeParsed(messages);
+
+      const store = middleware.getSessionStore();
+      const sessionId = "session-" + String(hashContent(longContent));
+      store.set(sessionId, {
+        id: sessionId,
+        messages,
+        tokenCount: 999,
+        compressionState: "disabled",
+        disabledReason: "previous permanent failure",
+        lastAccess: Date.now(),
+      });
+
+      middleware.afterResponse(parsed);
+
+      const session = store.get(sessionId);
+      expect(session!.compressionState).toBe("disabled");
+      expect(session!.tokenCount).toBe(999);
     });
 
     it("skips single-message conversations", () => {
       const parsed = makeParsed([{ role: "user", content: "Hello" }]);
 
-      middleware.afterResponse(parsed, adapter, "http://localhost:3000", TEST_AUTH);
+      middleware.afterResponse(parsed);
 
       const store = middleware.getSessionStore();
       expect(store.size()).toBe(0);
@@ -258,7 +324,7 @@ describe("createCompressionMiddleware", () => {
       ];
       const parsed = makeParsed(messages);
 
-      middleware.afterResponse(parsed, adapter, "http://localhost:3000", TEST_AUTH);
+      middleware.afterResponse(parsed);
 
       const store = middleware.getSessionStore();
       const sessionId = "session-" + String(hashContent("Hi"));
@@ -361,3 +427,264 @@ function hashContent(content: string): number {
   }
   return hash >>> 0;
 }
+
+function createStreamingMockAdapter(): ApiAdapter {
+  return {
+    apiType: "mock-stream",
+    parseRequest(body: unknown): ParsedRequest {
+      const raw = body as Record<string, unknown>;
+      return {
+        model: String(raw.model ?? ""),
+        messages: (raw.messages ?? []) as Array<{ role: string; content: unknown }>,
+        stream: true,
+        rawBody: raw,
+      };
+    },
+    buildUpstreamRequest(
+      parsed: ParsedRequest,
+      targetModel: string,
+      baseUrl: string,
+      auth: AuthInfo,
+    ): UpstreamRequest {
+      return {
+        url: `${baseUrl}/v1/stream`,
+        method: "POST",
+        headers: {
+          "authorization": `Bearer ${auth.apiKey}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          ...parsed.rawBody,
+          model: targetModel,
+          stream: true,
+        }),
+      };
+    },
+    modifyMessages(
+      rawBody: Record<string, unknown>,
+      compressedMessages: Array<{ role: string; content: unknown }>,
+    ): Record<string, unknown> {
+      return { ...rawBody, messages: compressedMessages };
+    },
+    parseStreamChunk(chunk: string) {
+      const events = [];
+      for (const line of chunk.split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) continue;
+        const payload = trimmed.slice(5).trim();
+        if (payload === "[DONE]") {
+          events.push({ type: "message_stop" as const });
+          continue;
+        }
+        try {
+          const data = JSON.parse(payload) as Record<string, unknown>;
+          if (data.type === "start") {
+            events.push({
+              type: "message_start" as const,
+              id: String(data.id ?? ""),
+              model: String(data.model ?? ""),
+            });
+          } else if (data.type === "delta") {
+            events.push({
+              type: "content_delta" as const,
+              text: String(data.text ?? ""),
+              index: 0,
+            });
+          }
+        } catch {
+          continue;
+        }
+      }
+      return events;
+    },
+  };
+}
+
+describe("compression with streaming upstream (end-to-end)", () => {
+  let server: ReturnType<typeof Bun.serve> | undefined;
+  let serverUrl: string;
+  let requestBodies: Array<Record<string, unknown>> = [];
+
+  beforeEach(() => {
+    requestBodies = [];
+    server = Bun.serve({
+      port: 0,
+      fetch: async (req) => {
+        const bodyText = await req.text();
+        requestBodies.push(JSON.parse(bodyText));
+
+        const sseBody =
+          `data: ${JSON.stringify({ type: "start", id: "m1", model: "compression-model" })}\n\n` +
+          `data: ${JSON.stringify({ type: "delta", text: "SUMMARY " })}\n\n` +
+          `data: ${JSON.stringify({ type: "delta", text: "OF CONVERSATION" })}\n\n` +
+          `data: [DONE]\n\n`;
+
+        return new Response(sseBody, {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      },
+    });
+    serverUrl = `http://localhost:${server.port}`;
+  });
+
+  afterEach(() => {
+    server?.stop(true);
+    server = undefined;
+  });
+
+  it("parses SSE stream response and stores compressedSummary text", async () => {
+    const target = createStreamingMockAdapter();
+    const middleware = createCompressionMiddleware({
+      threshold: 0.01,
+      targetRatio: 0.6,
+      compressionModel: "mock-stream/compression-model",
+      resolvedContextWindow: 100,
+      resolvedTarget: {
+        adapter: target,
+        baseUrl: serverUrl,
+        auth: TEST_AUTH,
+        actualModelId: "compression-model",
+      },
+      maxSessions: 10,
+    });
+
+    const longContent = "x".repeat(4000);
+    const messages = [
+      { role: "user", content: longContent },
+      { role: "assistant", content: longContent },
+    ];
+    const parsed = makeParsed(messages);
+
+    middleware.afterResponse(parsed);
+
+    let attempts = 0;
+    let sessionState: string | undefined;
+    while (attempts < 50) {
+      await new Promise((r) => setTimeout(r, 100));
+      const s = middleware.getSessionStore().get(
+        "session-" + String(hashContent(longContent)),
+      );
+      sessionState = s?.compressionState;
+      if (sessionState === "ready" || sessionState === "disabled") break;
+      attempts++;
+    }
+
+    const session = middleware.getSessionStore().get(
+      "session-" + String(hashContent(longContent)),
+    );
+    expect(session).toBeDefined();
+    expect(session!.compressionState).toBe("ready");
+    expect(session!.compressedSummary).toBeDefined();
+    expect(session!.compressedSummary).toContain("SUMMARY");
+    expect(session!.compressedSummary).toContain("OF CONVERSATION");
+
+    expect(requestBodies.length).toBeGreaterThanOrEqual(1);
+    expect(requestBodies[0].stream).toBe(true);
+  });
+
+  it("parses SSE with CRLF line endings", async () => {
+    server?.stop(true);
+    server = Bun.serve({
+      port: 0,
+      fetch: async () => {
+        const sseBody =
+          `data: ${JSON.stringify({ type: "start", id: "m1", model: "cx" })}\r\n\r\n` +
+          `data: ${JSON.stringify({ type: "delta", text: "CRLF " })}\r\n\r\n` +
+          `data: ${JSON.stringify({ type: "delta", text: "RESULT" })}\r\n\r\n` +
+          `data: [DONE]\r\n\r\n`;
+        return new Response(sseBody, {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      },
+    });
+    serverUrl = `http://localhost:${server.port}`;
+
+    const target = createStreamingMockAdapter();
+    const middleware = createCompressionMiddleware({
+      threshold: 0.01,
+      targetRatio: 0.6,
+      compressionModel: "mock-stream/compression-model",
+      resolvedContextWindow: 100,
+      resolvedTarget: {
+        adapter: target,
+        baseUrl: serverUrl,
+        auth: TEST_AUTH,
+        actualModelId: "compression-model",
+      },
+      maxSessions: 10,
+    });
+
+    const content = "z".repeat(4000);
+    const messages = [
+      { role: "user", content },
+      { role: "assistant", content },
+    ];
+    const parsed = makeParsed(messages);
+
+    middleware.afterResponse(parsed);
+
+    let attempts = 0;
+    while (attempts < 50) {
+      await new Promise((r) => setTimeout(r, 100));
+      const s = middleware.getSessionStore().get(
+        "session-" + String(hashContent(content)),
+      );
+      if (s?.compressionState === "ready") break;
+      attempts++;
+    }
+
+    const session = middleware.getSessionStore().get(
+      "session-" + String(hashContent(content)),
+    );
+    expect(session!.compressionState).toBe("ready");
+    expect(session!.compressedSummary).toContain("CRLF RESULT");
+  });
+
+  it("marks session disabled when upstream returns 403", async () => {
+    server?.stop(true);
+    server = Bun.serve({
+      port: 0,
+      fetch: async () => {
+        return new Response("<html>Cloudflare 403</html>", {
+          status: 403,
+          headers: { "content-type": "text/html" },
+        });
+      },
+    });
+    serverUrl = `http://localhost:${server.port}`;
+
+    const target = createStreamingMockAdapter();
+    const middleware = createCompressionMiddleware({
+      threshold: 0.01,
+      targetRatio: 0.6,
+      compressionModel: "mock-stream/compression-model",
+      resolvedContextWindow: 100,
+      resolvedTarget: {
+        adapter: target,
+        baseUrl: serverUrl,
+        auth: TEST_AUTH,
+        actualModelId: "compression-model",
+      },
+      maxSessions: 10,
+    });
+
+    const longContent = "y".repeat(4000);
+    const messages = [
+      { role: "user", content: longContent },
+      { role: "assistant", content: longContent },
+    ];
+    const parsed = makeParsed(messages);
+
+    middleware.afterResponse(parsed);
+
+    await new Promise((r) => setTimeout(r, 800));
+
+    const session = middleware.getSessionStore().get(
+      "session-" + String(hashContent(longContent)),
+    );
+    expect(session).toBeDefined();
+    expect(session!.compressionState).toBe("disabled");
+  });
+});

@@ -9,6 +9,18 @@ import { registerAdapter } from "./registry.ts";
 import { parseOpenAIBody } from "./openai-shared.ts";
 import { toOpenAITools } from "./tool-converter.ts";
 
+interface ProviderHints {
+  preferMaxCompletionTokens: boolean;
+}
+
+function detectProviderHints(baseUrl: string): ProviderHints {
+  const url = baseUrl.toLowerCase();
+  const isOpenAI = url.includes("api.openai.com");
+  return {
+    preferMaxCompletionTokens: isOpenAI,
+  };
+}
+
 class OpenAICompletionsAdapter implements ApiAdapter {
   readonly apiType = "openai-completions" as const;
 
@@ -45,16 +57,39 @@ class OpenAICompletionsAdapter implements ApiAdapter {
     const upstreamBody: Record<string, unknown> = {
       model: targetModel,
       messages,
-      stream: parsed.stream,
+      stream: true,
+      stream_options: { include_usage: true },
+      store: false,
       ...samplingParams,
     };
 
+    const providerHints = detectProviderHints(baseUrl);
+
     if (parsed.maxTokens !== undefined) {
-      upstreamBody.max_tokens = parsed.maxTokens;
+      if (providerHints.preferMaxCompletionTokens) {
+        upstreamBody.max_completion_tokens = parsed.maxTokens;
+      } else {
+        upstreamBody.max_tokens = parsed.maxTokens;
+      }
     }
 
     if (parsed.rawBody.tools) {
       upstreamBody.tools = toOpenAITools(parsed.rawBody.tools);
+    }
+
+    if (parsed.rawBody.tool_choice !== undefined) {
+      upstreamBody.tool_choice = parsed.rawBody.tool_choice;
+    }
+
+    if (parsed.rawBody.parallel_tool_calls !== undefined) {
+      upstreamBody.parallel_tool_calls = parsed.rawBody.parallel_tool_calls;
+    }
+
+    if (parsed.rawBody.thinking !== undefined) {
+      upstreamBody.thinking = parsed.rawBody.thinking;
+    }
+    if (parsed.rawBody.enable_thinking !== undefined) {
+      upstreamBody.enable_thinking = parsed.rawBody.enable_thinking;
     }
 
     return {

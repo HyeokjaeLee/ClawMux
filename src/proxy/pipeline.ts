@@ -1,7 +1,6 @@
 import type { ClawMuxConfig } from "../config/types.ts";
 import type { OpenClawConfig, AuthProfile } from "../openclaw/types.ts";
 import type { ApiAdapter, AuthInfo } from "../adapters/types.ts";
-import type { ParsedResponse } from "../adapters/response-types.ts";
 import type { CompressionMiddleware } from "./compression-integration.ts";
 import type { PiAiCatalog } from "../openclaw/model-limits.ts";
 import { getAdapter, registerAdapter } from "../adapters/registry.ts";
@@ -18,56 +17,31 @@ import type { Message, RoutingDecision, ClassificationResult } from "../routing/
 import { classifyLocal } from "../routing/local-classifier.ts";
 import { resolveApiKey } from "../openclaw/auth-resolver.ts";
 import { translateResponse } from "../adapters/stream-transformer.ts";
+import { collectStreamToResponse } from "../adapters/stream-collector.ts";
 import { setRouteHandler } from "./router.ts";
 import { createCompressionMiddleware } from "./compression-integration.ts";
 import { resolveCompressionContextWindow, resolveContextWindow, DEFAULT_CONTEXT_TOKENS } from "../openclaw/model-limits.ts";
+import { stream as piStream } from "@mariozechner/pi-ai";
+import { buildPiAiModel } from "../pi-bridge/model-builder.ts";
+import { buildPiContext } from "../pi-bridge/context-builder.ts";
+import { buildPiOptions } from "../pi-bridge/options-builder.ts";
+import { piStreamToAnthropicSse, piStreamToAnthropicJson } from "../pi-bridge/event-to-anthropic.ts";
+import { piStreamToOpenAiCompletionsSse, piStreamToOpenAiCompletionsJson } from "../pi-bridge/event-to-openai-completions.ts";
+import { piStreamToOpenAiResponsesSse, piStreamToOpenAiResponsesJson } from "../pi-bridge/event-to-openai-responses.ts";
+import { piStreamToGoogleSse, piStreamToGoogleJson } from "../pi-bridge/event-to-google.ts";
 
 registerAdapter(new AnthropicAdapter());
 
-async function collectCodexStream(
-  sourceAdapter: ApiAdapter,
-  response: Response,
-): Promise<ParsedResponse> {
-  const reader = response.body!.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let id = "";
-  let model = "";
-  const textParts: string[] = [];
-  let usage: { inputTokens: number; outputTokens: number } | undefined;
+const DEFAULT_CODEX_SYSTEM_PROMPT =
+  "You are a helpful coding assistant that answers concisely and accurately.";
 
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-
-    let idx: number;
-    while ((idx = buffer.indexOf("\n\n")) !== -1) {
-      const frame = buffer.slice(0, idx);
-      buffer = buffer.slice(idx + 2);
-      if (!frame.trim() || !sourceAdapter.parseStreamChunk) continue;
-
-      for (const event of sourceAdapter.parseStreamChunk(frame)) {
-        if (event.type === "message_start") {
-          id = event.id ?? "";
-          model = event.model ?? "";
-        } else if (event.type === "content_delta") {
-          textParts.push(event.text ?? "");
-        } else if (event.type === "message_stop" && event.usage) {
-          usage = event.usage;
-        }
-      }
-    }
-  }
-
-  return {
-    id,
-    model,
-    content: textParts.join(""),
-    role: "assistant",
-    stopReason: "completed",
-    usage,
-  };
+export function applyCodexSystemPromptFallback(
+  piContext: { systemPrompt?: string },
+  targetApiType: string,
+): void {
+  if (targetApiType !== "openai-codex-responses") return;
+  if (piContext.systemPrompt && piContext.systemPrompt.trim() !== "") return;
+  piContext.systemPrompt = DEFAULT_CODEX_SYSTEM_PROMPT;
 }
 
 interface ProviderLookupResult {
@@ -133,6 +107,79 @@ function upstreamErrorResponse(
     error: { message: `Upstream error ${status}: ${upstreamBody.slice(0, 200)}`, type: "upstream_error", code: status },
   });
   return new Response(body, { status, headers: { "content-type": "application/json" } });
+}
+
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  retryableStatusCodes: Set<number>,
+  maxRetries: number,
+  baseDelayMs: number,
+  maxDelayMs: number,
+  modelLabel: string,
+): Promise<Response> {
+  let lastResponse: Response | undefined;
+  let lastError: Error | undefined;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      lastResponse = await fetch(url, {
+        method: init.method,
+        headers: init.headers,
+        body: init.body,
+      });
+      lastError = undefined;
+
+      if (lastResponse.ok || !retryableStatusCodes.has(lastResponse.status)) {
+        return lastResponse;
+      }
+
+      if (attempt < maxRetries) {
+        const waitMs = computeRetryDelay(lastResponse, attempt, baseDelayMs, maxDelayMs);
+        console.warn(
+          `[clawmux] Upstream ${lastResponse.status} from ${modelLabel}, retrying in ${Math.round(waitMs)}ms (attempt ${attempt + 1}/${maxRetries})`,
+        );
+        await new Promise((r) => setTimeout(r, waitMs));
+      }
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (attempt < maxRetries) {
+        const jitter = Math.random() * 300;
+        const delay = Math.min(baseDelayMs * 2 ** attempt + jitter, maxDelayMs);
+        console.warn(
+          `[clawmux] Upstream fetch failed for ${modelLabel}: ${lastError.message}, retrying in ${Math.round(delay)}ms (attempt ${attempt + 1}/${maxRetries})`,
+        );
+        await new Promise((r) => setTimeout(r, delay));
+      }
+    }
+  }
+
+  if (lastError) {
+    throw lastError;
+  }
+  return lastResponse!;
+}
+
+function computeRetryDelay(
+  response: Response,
+  attempt: number,
+  baseDelayMs: number,
+  maxDelayMs: number,
+): number {
+  const retryAfter = response.headers.get("retry-after");
+  if (retryAfter) {
+    const asSeconds = Number(retryAfter);
+    if (!Number.isNaN(asSeconds) && asSeconds > 0) {
+      return asSeconds * 1000;
+    }
+    const asDate = Date.parse(retryAfter);
+    if (!Number.isNaN(asDate)) {
+      const diff = asDate - Date.now();
+      if (diff > 0) return Math.min(diff, maxDelayMs);
+    }
+  }
+  const jitter = Math.random() * 300;
+  return Math.min(baseDelayMs * 2 ** attempt + jitter, maxDelayMs);
 }
 
 export async function handleApiRequest(
@@ -225,6 +272,7 @@ export async function handleApiRequest(
     awsSecretKey: auth.awsSecretKey,
     awsSessionToken: auth.awsSessionToken,
     awsRegion: auth.awsRegion,
+    accountId: auth.accountId,
   };
 
   const actualModelId = decision.model.split("/").slice(1).join("/");
@@ -232,15 +280,136 @@ export async function handleApiRequest(
   const isCrossProvider = targetApiType !== "" && targetApiType !== apiType;
   const targetAdapter = isCrossProvider ? getAdapter(targetApiType) : undefined;
   const requestAdapter = targetAdapter ?? adapter;
+
+  const piEnabled = process.env.CLAWMUX_PIAI !== "0";
+  const PI_CLIENT_APIS = new Set([
+    "anthropic-messages",
+    "openai-completions",
+    "openai-responses",
+    "google-generative-ai",
+  ]);
+  const piEligible =
+    piEnabled &&
+    PI_CLIENT_APIS.has(apiType) &&
+    targetApiType !== "ollama" &&
+    targetApiType !== "bedrock-converse-stream";
+
+  if (piEligible) {
+    try {
+      const model = buildPiAiModel(providerName, actualModelId, openclawConfig);
+      const piContext = buildPiContext(effectiveParsed);
+      applyCodexSystemPromptFallback(piContext, targetApiType);
+      const piOptions = buildPiOptions(effectiveParsed, authInfo, providerName);
+
+      const lastUserMsg = [...parsed.messages].reverse().find((m) => m.role === "user");
+      const msgText = typeof lastUserMsg?.content === "string"
+        ? lastUserMsg.content
+        : Array.isArray(lastUserMsg?.content)
+          ? (lastUserMsg.content as Array<{ type?: string; text?: string }>)
+              .filter((b) => b.type === "text")
+              .map((b) => b.text ?? "")
+              .join(" ")
+          : "";
+      const preview = msgText.replace(/\s+/g, " ").trim().slice(0, 100);
+      console.log(
+        `[clawmux] [llm] ${decision.tier} → ${decision.model} | conf=${classification.confidence.toFixed(2)} | pi-ai (${apiType})${preview ? ` | "${preview}${msgText.length > 100 ? "…" : ""}"` : ""}`,
+      );
+
+      if (compressionMiddleware) {
+        compressionMiddleware.afterResponse(parsed);
+      }
+
+      const piStreamHandle = piStream(
+        model,
+        piContext,
+        piOptions as unknown as import("@mariozechner/pi-ai").ProviderStreamOptions,
+      );
+
+      const wantsStream = effectiveParsed.stream === true;
+
+      if (apiType === "anthropic-messages") {
+        if (wantsStream) {
+          return new Response(piStreamToAnthropicSse(piStreamHandle), {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          });
+        }
+        const json = await piStreamToAnthropicJson(piStreamHandle);
+        return new Response(JSON.stringify(json), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      if (apiType === "openai-completions") {
+        if (wantsStream) {
+          return new Response(piStreamToOpenAiCompletionsSse(piStreamHandle), {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          });
+        }
+        const json = await piStreamToOpenAiCompletionsJson(piStreamHandle);
+        return new Response(JSON.stringify(json), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      if (apiType === "openai-responses") {
+        if (wantsStream) {
+          return new Response(piStreamToOpenAiResponsesSse(piStreamHandle), {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          });
+        }
+        const json = await piStreamToOpenAiResponsesJson(piStreamHandle);
+        return new Response(JSON.stringify(json), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      if (apiType === "google-generative-ai") {
+        if (wantsStream) {
+          return new Response(piStreamToGoogleSse(piStreamHandle), {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          });
+        }
+        const json = await piStreamToGoogleJson(piStreamHandle);
+        return new Response(JSON.stringify(json), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[clawmux] pi-ai path failed, falling back to legacy: ${message}`);
+    }
+  }
+
   const upstream = requestAdapter.buildUpstreamRequest(effectiveParsed, actualModelId, baseUrl, authInfo);
+
+  const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503]);
+  const MAX_UPSTREAM_RETRIES = 3;
+  const RETRY_BASE_DELAY_MS = 500;
+  const RETRY_MAX_DELAY_MS = 8000;
 
   let upstreamResponse: Response;
   try {
-    upstreamResponse = await fetch(upstream.url, {
-      method: upstream.method,
-      headers: upstream.headers,
-      body: upstream.body,
-    });
+    upstreamResponse = await fetchWithRetry(
+      upstream.url,
+      {
+        method: upstream.method,
+        headers: upstream.headers,
+        body: upstream.body,
+      },
+      RETRYABLE_STATUS_CODES,
+      MAX_UPSTREAM_RETRIES,
+      RETRY_BASE_DELAY_MS,
+      RETRY_MAX_DELAY_MS,
+      decision.model,
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return jsonErrorResponse(`Upstream request failed: ${message}`, 502);
@@ -262,20 +431,7 @@ export async function handleApiRequest(
   );
 
   if (compressionMiddleware && upstreamResponse.ok) {
-    compressionMiddleware.afterResponse(parsed, adapter, baseUrl, authInfo);
-  }
-
-  const isCodexUpstream = targetApiType === "openai-codex-responses";
-  if (isCodexUpstream && upstreamResponse.ok && upstreamResponse.body) {
-    if (effectiveParsed.stream) {
-      return translateResponse(requestAdapter, adapter, upstreamResponse, true);
-    }
-    const collected = await collectCodexStream(requestAdapter, upstreamResponse);
-    const translated = adapter.buildResponse!(collected);
-    return new Response(JSON.stringify(translated), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    });
+    compressionMiddleware.afterResponse(parsed);
   }
 
   if (!upstreamResponse.ok) {
@@ -286,8 +442,40 @@ export async function handleApiRequest(
     return upstreamErrorResponse(apiType, upstreamResponse.status, errorBody);
   }
 
+  const clientWantsStream = effectiveParsed.stream === true;
+  const canInspectForCollect =
+    !clientWantsStream &&
+    upstreamResponse.body !== null &&
+    typeof requestAdapter.parseStreamChunk === "function" &&
+    typeof adapter.buildResponse === "function";
+
+  if (canInspectForCollect) {
+    const { kind, response: inspectedResponse } = await detectUpstreamBodyKind(upstreamResponse);
+    if (kind === "stream") {
+      try {
+        const collected = await collectStreamToResponse(requestAdapter, inspectedResponse);
+        const translated = adapter.buildResponse!(collected);
+        return new Response(JSON.stringify(translated), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`[clawmux] Stream collection failed: ${message}`);
+        return jsonErrorResponse(`Upstream stream failed: ${message}`, 502);
+      }
+    }
+    upstreamResponse = inspectedResponse;
+    if (kind === "binary-stream") {
+      return jsonErrorResponse(
+        `Cross-provider non-streaming translation is not supported for binary eventstream upstream (${requestAdapter.apiType}). The client must request a streaming response.`,
+        502,
+      );
+    }
+  }
+
   if (targetAdapter) {
-    return translateResponse(targetAdapter, adapter, upstreamResponse, effectiveParsed.stream);
+    return translateResponse(targetAdapter, adapter, upstreamResponse, clientWantsStream);
   }
 
   return new Response(upstreamResponse.body, {
@@ -297,9 +485,139 @@ export async function handleApiRequest(
   });
 }
 
+async function detectUpstreamBodyKind(
+  response: Response,
+): Promise<{ kind: "stream" | "binary-stream" | "json" | "unknown"; response: Response }> {
+  const contentType = response.headers.get("content-type") ?? "";
+  if (contentType.includes("application/vnd.amazon.eventstream")) {
+    return { kind: "binary-stream", response };
+  }
+  if (
+    contentType.includes("text/event-stream") ||
+    contentType.includes("application/x-ndjson")
+  ) {
+    return { kind: "stream", response };
+  }
+
+  if (!response.body) {
+    return { kind: "unknown", response };
+  }
+
+  const reader = response.body.getReader();
+  const { value, done } = await reader.read();
+
+  const rebuiltBody = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      if (value) controller.enqueue(value);
+      if (done) {
+        controller.close();
+        return;
+      }
+      for (;;) {
+        const { value: nextValue, done: nextDone } = await reader.read();
+        if (nextDone) break;
+        if (nextValue) controller.enqueue(nextValue);
+      }
+      controller.close();
+    },
+    cancel(reason) {
+      return reader.cancel(reason);
+    },
+  });
+
+  const rebuilt = new Response(rebuiltBody, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+
+  if (!value || value.length === 0) {
+    return { kind: "unknown", response: rebuilt };
+  }
+
+  const peek = new TextDecoder().decode(value.slice(0, Math.min(64, value.length))).trimStart();
+  if (peek.startsWith("event:") || peek.startsWith("data:") || peek.startsWith(":")) {
+    return { kind: "stream", response: rebuilt };
+  }
+  if (peek.startsWith("{") || peek.startsWith("[")) {
+    return { kind: "json", response: rebuilt };
+  }
+  return { kind: "unknown", response: rebuilt };
+}
+
+const COMPRESSION_UNSUPPORTED_API_TYPES = new Set([
+  "openai-codex-responses",
+  "bedrock-converse-stream",
+]);
+
+function resolveCompressionTarget(
+  compressionModel: string,
+  openclawConfig: OpenClawConfig,
+  authProfiles: AuthProfile[],
+): import("./compression-integration.ts").ResolvedCompressionTarget | undefined {
+  const lookup = findProviderForModel(compressionModel, openclawConfig);
+  if (!lookup) {
+    console.warn(
+      `[clawmux] Compression model "${compressionModel}" has no matching provider in openclaw.json. Compression will be disabled.`,
+    );
+    return undefined;
+  }
+
+  if (COMPRESSION_UNSUPPORTED_API_TYPES.has(lookup.apiType)) {
+    console.warn(
+      `[clawmux] Compression provider "${lookup.providerName}" uses apiType "${lookup.apiType}" which is not supported for compression (OAuth/signed-request flow). Use a direct API-key provider (e.g. zai, openai, anthropic) for compression.model. Compression will be disabled.`,
+    );
+    return undefined;
+  }
+
+  const adapter = getAdapter(lookup.apiType);
+  if (!adapter) {
+    console.warn(
+      `[clawmux] Compression provider "${lookup.providerName}" uses unknown apiType "${lookup.apiType}". Compression will be disabled.`,
+    );
+    return undefined;
+  }
+
+  const auth = resolveApiKey(lookup.providerName, openclawConfig, authProfiles);
+  if (!auth) {
+    console.warn(
+      `[clawmux] No auth credentials for compression provider "${lookup.providerName}". Compression will be disabled.`,
+    );
+    return undefined;
+  }
+
+  if (!auth.apiKey || auth.apiKey.trim() === "") {
+    console.warn(
+      `[clawmux] Compression provider "${lookup.providerName}" returned empty apiKey (OAuth-only or missing credential). Compression will be disabled.`,
+    );
+    return undefined;
+  }
+
+  const actualModelId = compressionModel.includes("/")
+    ? compressionModel.split("/").slice(1).join("/")
+    : compressionModel;
+
+  return {
+    adapter,
+    baseUrl: lookup.baseUrl,
+    auth: {
+      apiKey: auth.apiKey,
+      headerName: auth.headerName,
+      headerValue: auth.headerValue,
+      awsAccessKeyId: auth.awsAccessKeyId,
+      awsSecretKey: auth.awsSecretKey,
+      awsSessionToken: auth.awsSessionToken,
+      awsRegion: auth.awsRegion,
+      accountId: auth.accountId,
+    },
+    actualModelId,
+  };
+}
+
 export function createResolvedCompressionMiddleware(
   config: ClawMuxConfig,
   openclawConfig: OpenClawConfig,
+  authProfiles: AuthProfile[],
   piAiCatalog: PiAiCatalog | undefined,
   statsTracker?: import("./stats.ts").StatsTracker,
 ): CompressionMiddleware {
@@ -321,11 +639,23 @@ export function createResolvedCompressionMiddleware(
   }
   console.log(`[clawmux] Compression contextWindow=${resolvedContextWindow} (minimum across tiers)`);
 
+  const resolvedTarget = resolveCompressionTarget(
+    config.compression.model,
+    openclawConfig,
+    authProfiles,
+  );
+  if (resolvedTarget) {
+    console.log(
+      `[clawmux] Compression model ${config.compression.model} → provider=${resolvedTarget.baseUrl} apiType=${resolvedTarget.adapter.apiType}`,
+    );
+  }
+
   return createCompressionMiddleware({
     threshold: config.compression.threshold,
     targetRatio: config.compression.targetRatio ?? 0.6,
     compressionModel: config.compression.model,
     resolvedContextWindow,
+    resolvedTarget,
     statsTracker,
   });
 }

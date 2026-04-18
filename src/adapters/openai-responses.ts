@@ -7,7 +7,8 @@ import type {
 import type { ParsedResponse, StreamEvent } from "./response-types.ts";
 import { registerAdapter } from "./registry.ts";
 import { parseOpenAIBody } from "./openai-shared.ts";
-import { toOpenAITools } from "./tool-converter.ts";
+import { toResponsesInput } from "./openai-responses-shared.ts";
+import { toResponsesTools } from "./tool-converter.ts";
 
 class OpenAIResponsesAdapter implements ApiAdapter {
   readonly apiType = "openai-responses" as const;
@@ -22,16 +23,20 @@ class OpenAIResponsesAdapter implements ApiAdapter {
     baseUrl: string,
     auth: AuthInfo,
   ): UpstreamRequest {
-    const input: Array<{ role: string; content: unknown }> = [];
+    const inputMessages: Array<Record<string, unknown>> = [];
 
     if (parsed.system !== undefined) {
-      input.push({ role: "system", content: parsed.system });
+      inputMessages.push({ role: "system", content: parsed.system });
     }
-    input.push(...parsed.messages);
+    inputMessages.push(...(parsed.messages as Array<Record<string, unknown>>));
+
+    const input = toResponsesInput(inputMessages);
 
     const OPENAI_RESPONSES_SAMPLING_KEYS = [
       "temperature", "top_p", "truncation", "reasoning", "reasoning_effort",
-      "text", "metadata", "store", "include",
+      "text", "metadata", "include", "service_tier", "prompt_cache_key",
+      "prompt_cache_retention", "previous_response_id", "tool_choice",
+      "parallel_tool_calls",
     ] as const;
 
     const samplingParams: Record<string, unknown> = {};
@@ -44,7 +49,8 @@ class OpenAIResponsesAdapter implements ApiAdapter {
     const upstreamBody: Record<string, unknown> = {
       model: targetModel,
       input,
-      stream: parsed.stream,
+      stream: true,
+      store: false,
       ...samplingParams,
     };
 
@@ -53,7 +59,7 @@ class OpenAIResponsesAdapter implements ApiAdapter {
     }
 
     if (parsed.rawBody.tools) {
-      upstreamBody.tools = toOpenAITools(parsed.rawBody.tools);
+      upstreamBody.tools = toResponsesTools(parsed.rawBody.tools);
     }
 
     return {

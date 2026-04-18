@@ -1,3 +1,4 @@
+process.env.CLAWMUX_PIAI = "0";
 import { describe, expect, it, beforeAll, afterAll } from "bun:test";
 import type { ClawMuxConfig } from "../config/types.ts";
 import type { OpenClawConfig, AuthProfile } from "../openclaw/types.ts";
@@ -379,5 +380,206 @@ describe("setupPipelineRoutes", () => {
   it("is exported and callable", async () => {
     const { setupPipelineRoutes } = await import("./pipeline.ts");
     expect(typeof setupPipelineRoutes).toBe("function");
+  });
+});
+
+describe("createResolvedCompressionMiddleware (bug 1 integration)", () => {
+  it("resolves compression provider INDEPENDENTLY of routed tier", async () => {
+    const { createResolvedCompressionMiddleware } = await import("./pipeline.ts");
+
+    let compressionBaseUrl: string | undefined;
+    let compressionAuth: string | undefined;
+    const compressionServer = Bun.serve({
+      port: 0,
+      fetch: async (req) => {
+        compressionBaseUrl = new URL(req.url).origin;
+        compressionAuth = req.headers.get("authorization") ?? undefined;
+        const body =
+          'data: {"id":"c1","model":"gpt-4o-mini","choices":[{"delta":{"role":"assistant"}}]}\n\n' +
+          'data: {"choices":[{"delta":{"content":"COMPRESSED_SUMMARY"},"finish_reason":"stop"}]}\n\n' +
+          "data: [DONE]\n\n";
+        return new Response(body, {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      },
+    });
+
+    const routedServer = Bun.serve({
+      port: 0,
+      fetch: async () =>
+        new Response('{"should":"not be called by compression"}', {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    });
+
+    try {
+      const clawmuxConfig: ClawMuxConfig = {
+        compression: {
+          threshold: 0.01,
+          targetRatio: 0.6,
+          model: "openai/gpt-4o-mini",
+        },
+        routing: {
+          models: {
+            LIGHT: "anthropic/claude-3-5-haiku-20241022",
+            MEDIUM: "anthropic/claude-sonnet-4-20250514",
+            HEAVY: "anthropic/claude-opus-4-20250514",
+          },
+        },
+      };
+
+      const openclawConfig: OpenClawConfig = {
+        models: {
+          providers: {
+            anthropic: {
+              baseUrl: `http://localhost:${routedServer.port}`,
+              api: "anthropic-messages",
+              apiKey: "routed-anthropic-key",
+              models: [{ id: "claude-opus-4-20250514" }],
+            },
+            openai: {
+              baseUrl: `http://localhost:${compressionServer.port}`,
+              api: "openai-completions",
+              apiKey: "compression-openai-key",
+              models: [{ id: "gpt-4o-mini" }],
+            },
+          },
+        },
+      };
+
+      const authProfiles: AuthProfile[] = [];
+      const middleware = createResolvedCompressionMiddleware(
+        clawmuxConfig,
+        openclawConfig,
+        authProfiles,
+        undefined,
+      );
+
+      const longContent = "z".repeat(8000);
+      const parsed = {
+        model: "anthropic/claude-opus-4-20250514",
+        messages: [
+          { role: "user", content: longContent },
+          { role: "assistant", content: longContent },
+        ],
+        stream: false,
+        rawBody: {},
+      };
+
+      middleware.afterResponse(parsed);
+
+      let attempts = 0;
+      while (attempts < 50) {
+        await new Promise((r) => setTimeout(r, 100));
+        if (compressionBaseUrl) break;
+        attempts++;
+      }
+
+      expect(compressionBaseUrl).toBe(`http://localhost:${compressionServer.port}`);
+      expect(compressionBaseUrl).not.toBe(`http://localhost:${routedServer.port}`);
+      expect(compressionAuth).toBe("Bearer compression-openai-key");
+      expect(compressionAuth).not.toContain("routed-anthropic-key");
+    } finally {
+      compressionServer.stop(true);
+      routedServer.stop(true);
+    }
+  });
+
+  it("disables compression when model's provider uses openai-codex-responses (OAuth-only)", async () => {
+    const { createResolvedCompressionMiddleware } = await import("./pipeline.ts");
+
+    const clawmuxConfig: ClawMuxConfig = {
+      compression: {
+        threshold: 0.01,
+        targetRatio: 0.6,
+        model: "openai-codex/gpt-5.4",
+      },
+      routing: {
+        models: {
+          LIGHT: "anthropic/claude-3-5-haiku-20241022",
+          MEDIUM: "anthropic/claude-sonnet-4-20250514",
+          HEAVY: "anthropic/claude-opus-4-20250514",
+        },
+      },
+    };
+
+    const openclawConfig: OpenClawConfig = {
+      models: {
+        providers: {
+          anthropic: {
+            baseUrl: "http://irrelevant",
+            api: "anthropic-messages",
+            apiKey: "a",
+            models: [{ id: "claude-opus-4-20250514" }],
+          },
+          "openai-codex": {
+            baseUrl: "http://chatgpt.com/backend-api/codex",
+            api: "openai-codex-responses",
+            apiKey: "",
+            models: [{ id: "gpt-5.4" }],
+          },
+        },
+      },
+    };
+
+    const middleware = createResolvedCompressionMiddleware(
+      clawmuxConfig,
+      openclawConfig,
+      [],
+      undefined,
+    );
+
+    const longContent = "q".repeat(8000);
+    const parsed = {
+      model: "anthropic/claude-opus-4-20250514",
+      messages: [
+        { role: "user", content: longContent },
+        { role: "assistant", content: longContent },
+      ],
+      stream: false,
+      rawBody: {},
+    };
+
+    middleware.afterResponse(parsed);
+    await new Promise((r) => setTimeout(r, 200));
+
+    const worker = middleware.getWorker();
+    const stats = worker.getStats();
+    expect(stats.activeJobs).toBe(0);
+    expect(stats.completedJobs).toBe(0);
+    expect(stats.failedJobs).toBe(0);
+  });
+});
+
+describe("applyCodexSystemPromptFallback", () => {
+  it("injects default prompt for openai-codex-responses when empty", async () => {
+    const { applyCodexSystemPromptFallback } = await import("./pipeline.ts");
+    const ctx: { systemPrompt?: string } = {};
+    applyCodexSystemPromptFallback(ctx, "openai-codex-responses");
+    expect(ctx.systemPrompt).toBeDefined();
+    expect(ctx.systemPrompt!.length).toBeGreaterThan(0);
+  });
+
+  it("injects default prompt for openai-codex-responses when whitespace-only", async () => {
+    const { applyCodexSystemPromptFallback } = await import("./pipeline.ts");
+    const ctx = { systemPrompt: "   \n  " };
+    applyCodexSystemPromptFallback(ctx, "openai-codex-responses");
+    expect(ctx.systemPrompt.trim().length).toBeGreaterThan(0);
+  });
+
+  it("preserves existing systemPrompt for openai-codex-responses", async () => {
+    const { applyCodexSystemPromptFallback } = await import("./pipeline.ts");
+    const ctx = { systemPrompt: "Custom prompt" };
+    applyCodexSystemPromptFallback(ctx, "openai-codex-responses");
+    expect(ctx.systemPrompt).toBe("Custom prompt");
+  });
+
+  it("does not touch systemPrompt for other api types", async () => {
+    const { applyCodexSystemPromptFallback } = await import("./pipeline.ts");
+    const ctx: { systemPrompt?: string } = {};
+    applyCodexSystemPromptFallback(ctx, "openai-responses");
+    expect(ctx.systemPrompt).toBeUndefined();
   });
 });

@@ -24,6 +24,7 @@ export interface AuthProfile {
   provider: string;
   apiKey?: string;
   token?: string;
+  accountId?: string;
 }
 
 export interface ResolvedAuth {
@@ -34,4 +35,5 @@ export interface ResolvedAuth {
   awsSecretKey?: string;
   awsSessionToken?: string;
   awsRegion?: string;
+  accountId?: string;
 }
