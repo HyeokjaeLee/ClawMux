@@ -25,6 +25,7 @@ export interface CompressionMiddlewareConfig {
   targetRatio: number;
   compressionModel: string;
   resolvedContextWindow: number;
+  resolvedCompressionModelContextWindow?: number;
   resolvedTarget?: ResolvedCompressionTarget;
   maxSessions?: number;
   statsTracker?: StatsTracker;
@@ -162,6 +163,7 @@ export function createCompressionMiddleware(
     targetRatio: config.targetRatio,
     compressionModel: config.compressionModel,
     contextWindow,
+    compressionModelContextWindow: config.resolvedCompressionModelContextWindow,
     maxConcurrent: 2,
     timeoutMs: 900_000,
   });

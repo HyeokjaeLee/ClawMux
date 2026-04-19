@@ -689,11 +689,22 @@ export function createResolvedCompressionMiddleware(
     );
   }
 
+  const resolvedCompressionModelContextWindow = resolveContextWindow(
+    config.compression.model,
+    contextWindows,
+    openclawConfig,
+    piAiCatalog,
+  );
+  console.log(
+    `[clawmux] Compression model ${config.compression.model} contextWindow=${resolvedCompressionModelContextWindow}`,
+  );
+
   return createCompressionMiddleware({
     threshold: config.compression.threshold,
     targetRatio: config.compression.targetRatio ?? 0.6,
     compressionModel: config.compression.model,
     resolvedContextWindow,
+    resolvedCompressionModelContextWindow,
     resolvedTarget,
     statsTracker,
   });

@@ -7,6 +7,11 @@ import {
   validateSummary,
   buildQualityFeedbackPrompt,
 } from "./prompt";
+import {
+  compressMessagesMapReduce,
+  DEFAULT_MAP_REDUCE_CONFIG,
+  type MapReduceConfig,
+} from "./map-reduce";
 
 export type MakeApiCall = (
   model: string,
@@ -18,8 +23,11 @@ export interface CompressionWorkerConfig {
   targetRatio: number;
   compressionModel: string;
   contextWindow: number;
+  compressionModelContextWindow?: number;
   maxConcurrent: number;
   timeoutMs: number;
+  mapReduceSafetyRatio?: number;
+  mapReduceMaxDepth?: number;
 }
 
 const MAX_RETRIES = 3;
@@ -152,7 +160,7 @@ export function createCompressionWorker(
     );
   }
 
-  async function summarizeWithQualityGuard(
+  async function summarizeOnce(
     messages: Array<{ role: string; content: unknown }>,
     targetTokens: number,
     previousSummary: string | undefined,
@@ -173,6 +181,35 @@ export function createCompressionWorker(
     }
 
     return summaryText;
+  }
+
+  function mapReduceConfig(): MapReduceConfig {
+    return {
+      modelContextWindow:
+        config.compressionModelContextWindow ??
+        DEFAULT_MAP_REDUCE_CONFIG.modelContextWindow,
+      safetyRatio:
+        config.mapReduceSafetyRatio ?? DEFAULT_MAP_REDUCE_CONFIG.safetyRatio,
+      maxDepth:
+        config.mapReduceMaxDepth ?? DEFAULT_MAP_REDUCE_CONFIG.maxDepth,
+      minChunkMessages: DEFAULT_MAP_REDUCE_CONFIG.minChunkMessages,
+    };
+  }
+
+  async function summarizeWithQualityGuard(
+    messages: Array<{ role: string; content: unknown }>,
+    targetTokens: number,
+    previousSummary: string | undefined,
+    makeApiCall: MakeApiCall,
+  ): Promise<string> {
+    return compressMessagesMapReduce(
+      messages,
+      targetTokens,
+      previousSummary,
+      (chunk, chunkTarget, chunkPrevSummary) =>
+        summarizeOnce(chunk, chunkTarget, chunkPrevSummary, makeApiCall),
+      mapReduceConfig(),
+    );
   }
 
   function triggerCompression(
