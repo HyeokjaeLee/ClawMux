@@ -77,11 +77,9 @@ Expected: no output.
 npm cache clean --force
 ```
 
-Note: `npm cache clean` clears the entire npm cache, not just clawmux. This is safe — npm will re-cache packages as needed. To verify:
+Warning: `npm cache clean` clears the **entire** npm cache, not just clawmux. This means the next `npm install` or `npx` for any package will need to re-download. It is safe — npm re-caches on demand — but it adds latency to subsequent installs.
 
-```bash
-npm cache ls clawmux 2>/dev/null || echo "No clawmux in cache"
-```
+If you prefer to keep the npm cache intact, you can skip this step. The stale clawmux entry will be overwritten automatically the next time clawmux is installed, and it won't cause issues since the package is already uninstalled.
 
 **npx/bunx temporary directories:**
 
