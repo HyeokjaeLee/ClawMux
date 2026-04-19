@@ -104,7 +104,7 @@ OpenClaw → ClawMux Proxy (localhost:3456) → Upstream Provider(s)
 
 **Kill switch**: Set `routing.escalation.enabled` to `false` in your config to disable escalation and always use the MEDIUM model. This is useful for debugging or when you want predictable routing.
 
-**Context compression** runs in the background after each response. When the conversation approaches the configured threshold, ClawMux summarizes older messages before the next request goes out. This keeps costs down on long conversations without interrupting the flow.
+**Context compression** happens in two layers. Deterministic compaction runs inline on the request path: once the incoming payload crosses the hard ceiling (90% of the smallest routing-tier context window), ClawMux truncates oversized `tool_result` blocks head+tail with a marker before falling back to whole-message truncation, so tool chains stay intact. LLM-based summarisation runs in the background after each response: when the conversation crosses the configured threshold, ClawMux summarises older messages for the next request, and if the conversation itself exceeds the summarisation model's own context window the work is split into chunks, each chunk is summarised in parallel, and the summaries are recursively reduced until they fit.
 
 ### Context Window Resolution
 

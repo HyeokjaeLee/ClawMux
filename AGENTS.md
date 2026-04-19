@@ -28,7 +28,7 @@
 
 ## Project Structure
 - `src/adapters/` — API format adapters (anthropic, openai-completions, etc.)
-- `src/compression/` — context compression logic and session store
+- `src/compression/` — context compression logic: LLM-based summarisation (`worker.ts`, `prompt.ts`), deterministic tool_result truncation (`tool-result-compactor.ts`), recursive map-reduce chunked summarisation for oversized inputs (`map-reduce.ts`), session store
 - `src/config/` — config loading, validation, hot-reload watcher
 - `src/openclaw/` — OpenClaw config parsing and auth resolution
 - `src/pi-bridge/` — pi-ai integration: builds Context/Options from ParsedRequest, OAuth token resolution, and per-format event→response translators
