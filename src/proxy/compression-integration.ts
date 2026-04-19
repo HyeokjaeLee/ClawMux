@@ -4,6 +4,10 @@ import type { CompressionWorker, MakeApiCall } from "../compression/worker.ts";
 import type { StatsTracker } from "./stats.ts";
 import { createSessionStore, generateSessionId } from "../compression/session-store.ts";
 import { createCompressionWorker, truncateToFit } from "../compression/worker.ts";
+import {
+  compactToolResults,
+  DEFAULT_COMPACTOR_CONFIG,
+} from "../compression/tool-result-compactor.ts";
 import { estimateMessagesTokens } from "../utils/token-estimator.ts";
 import type { Message } from "../utils/token-estimator.ts";
 import {
@@ -209,10 +213,31 @@ export function createCompressionMiddleware(
     const hardCeilingTokens = HARD_CEILING_RATIO * contextWindow;
     if (tokenCount >= hardCeilingTokens) {
       const targetTokens = config.targetRatio * contextWindow;
-      const truncated = truncateToFit(messages, targetTokens);
+
+      const compactionResult = compactToolResults(messages, {
+        targetTokens,
+        maxToolResultChars: DEFAULT_COMPACTOR_CONFIG.maxToolResultChars,
+        minReductionThreshold: DEFAULT_COMPACTOR_CONFIG.minReductionThreshold,
+      });
+
+      if (
+        compactionResult.truncatedCount > 0 &&
+        compactionResult.compactedTokens <= hardCeilingTokens
+      ) {
+        console.log(
+          `[compression] Deterministic compactor truncated ${compactionResult.truncatedCount} tool_result(s): ${compactionResult.originalTokens} → ${compactionResult.compactedTokens} tokens`,
+        );
+        return { messages: compactionResult.messages, wasCompressed: true };
+      }
+
+      const baseMessages =
+        compactionResult.truncatedCount > 0
+          ? compactionResult.messages
+          : messages;
+      const truncated = truncateToFit(baseMessages, targetTokens);
 
       console.log(
-        `[compression] Hard ceiling hit (${tokenCount} tokens >= ${Math.round(hardCeilingTokens)}), truncating to ${Math.round(targetTokens)} tokens`,
+        `[compression] Hard ceiling hit (${tokenCount} tokens >= ${Math.round(hardCeilingTokens)}), truncating to ${Math.round(targetTokens)} tokens (after ${compactionResult.truncatedCount} tool_result truncation(s))`,
       );
 
       return { messages: truncated, wasCompressed: true };
