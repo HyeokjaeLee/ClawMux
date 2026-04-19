@@ -1,5 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { estimateTokens, estimateMessagesTokens, isCJK } from "./token-estimator.ts";
+import {
+  estimateBlockTokens,
+  estimateMessagesTokens,
+  estimateTokens,
+  isCJK,
+} from "./token-estimator.ts";
 
 describe("isCJK", () => {
   it("returns true for CJK unified ideographs", () => {
@@ -13,7 +18,7 @@ describe("isCJK", () => {
   });
 
   it("returns true for CJK compatibility ideographs", () => {
-    expect(isCJK(0xF900)).toBe(true);
+    expect(isCJK(0xf900)).toBe(true);
   });
 
   it("returns false for ASCII", () => {
@@ -32,34 +37,91 @@ describe("estimateTokens", () => {
   });
 
   it("estimates English text (~4 chars per token)", () => {
-    expect(estimateTokens("hello world")).toBe(3); // 11 chars / 4 = 2.75, ceil = 3
+    expect(estimateTokens("hello world")).toBe(3);
   });
 
   it("estimates Korean text (~2.5 tokens per character)", () => {
-    expect(estimateTokens("안녕하세요")).toBe(13); // 5 × 2.5 = 12.5, ceil = 13
+    expect(estimateTokens("안녕하세요")).toBe(13);
   });
 
   it("estimates mixed English + Korean", () => {
-    expect(estimateTokens("Hello 안녕")).toBe(7); // 6 ASCII/4=1.5 + 2 CJK×2.5=5 → 6.5, ceil = 7
+    expect(estimateTokens("Hello 안녕")).toBe(7);
   });
 
   it("estimates code text", () => {
-    expect(estimateTokens("function foo() { return bar; }")).toBe(8); // 29 chars / 4 = 7.25, ceil = 8
+    expect(estimateTokens("function foo() { return bar; }")).toBe(8);
   });
 
   it("handles whitespace-only string", () => {
-    expect(estimateTokens("   ")).toBe(1); // 3 chars / 4 = 0.75, ceil = 1
+    expect(estimateTokens("   ")).toBe(1);
   });
 
   it("handles CJK ideographs", () => {
-    expect(estimateTokens("漢字")).toBe(5); // 2 × 2.5 = 5, ceil = 5
+    expect(estimateTokens("漢字")).toBe(5);
   });
 });
 
-interface Message {
-  role: string;
-  content: string | Array<{ type: string; text?: string }>;
-}
+describe("estimateBlockTokens", () => {
+  it("counts text block", () => {
+    expect(estimateBlockTokens({ type: "text", text: "hello" })).toBe(
+      estimateTokens("hello"),
+    );
+  });
+
+  it("counts thinking block", () => {
+    expect(
+      estimateBlockTokens({ type: "thinking", thinking: "reasoning here" }),
+    ).toBe(estimateTokens("reasoning here"));
+  });
+
+  it("counts tool_use name + input", () => {
+    const block = {
+      type: "tool_use",
+      id: "call_1",
+      name: "search",
+      input: { query: "hello world" },
+    };
+    const expected =
+      estimateTokens("search") +
+      estimateTokens(JSON.stringify({ query: "hello world" }));
+    expect(estimateBlockTokens(block)).toBe(expected);
+  });
+
+  it("counts tool_result with string content", () => {
+    const block = {
+      type: "tool_result",
+      tool_use_id: "call_1",
+      content: "a".repeat(400),
+    };
+    expect(estimateBlockTokens(block)).toBe(estimateTokens("a".repeat(400)));
+  });
+
+  it("counts tool_result with array of text blocks", () => {
+    const block = {
+      type: "tool_result",
+      tool_use_id: "call_1",
+      content: [
+        { type: "text", text: "part one" },
+        { type: "text", text: "part two" },
+      ],
+    };
+    const expected =
+      estimateTokens("part one") + estimateTokens("part two");
+    expect(estimateBlockTokens(block)).toBe(expected);
+  });
+
+  it("counts image block as a conservative constant", () => {
+    const block = { type: "image", source: { type: "base64", data: "..." } };
+    expect(estimateBlockTokens(block)).toBeGreaterThan(0);
+  });
+
+  it("falls back to JSON estimation for unknown block types", () => {
+    const block = { type: "custom_future_block", payload: "some data" };
+    expect(estimateBlockTokens(block)).toBe(
+      estimateTokens(JSON.stringify(block)),
+    );
+  });
+});
 
 describe("estimateMessagesTokens", () => {
   it("returns 0 for empty array", () => {
@@ -67,43 +129,61 @@ describe("estimateMessagesTokens", () => {
   });
 
   it("estimates simple string content messages", () => {
-    const messages: Message[] = [{ role: "user", content: "hello" }];
-    const expected = estimateTokens("hello") + 4; // content + overhead
-    expect(estimateMessagesTokens(messages)).toBe(expected);
-  });
-
-  it("only counts text blocks in array content", () => {
-    const content = [
-      { type: "text", text: "hello" },
-      { type: "image", source: {} },
-    ];
-    const messages = [{ role: "assistant", content }];
+    const messages = [{ role: "user", content: "hello" }];
     const expected = estimateTokens("hello") + 4;
     expect(estimateMessagesTokens(messages)).toBe(expected);
   });
 
+  it("includes non-text blocks in array content", () => {
+    const content = [
+      { type: "text", text: "hello" },
+      { type: "tool_use", id: "1", name: "fetch", input: { url: "x" } },
+    ];
+    const messages = [{ role: "assistant", content }];
+    const expected =
+      estimateTokens("hello") +
+      estimateTokens("fetch") +
+      estimateTokens(JSON.stringify({ url: "x" })) +
+      4;
+    expect(estimateMessagesTokens(messages)).toBe(expected);
+  });
+
+  it("includes tool_result content", () => {
+    const toolResult = "R".repeat(1000);
+    const content = [
+      { type: "text", text: "hi" },
+      { type: "tool_result", tool_use_id: "1", content: toolResult },
+    ];
+    const messages = [{ role: "user", content }];
+    const expected =
+      estimateTokens("hi") + estimateTokens(toolResult) + 4;
+    expect(estimateMessagesTokens(messages)).toBe(expected);
+  });
+
   it("handles multiple messages", () => {
-    const messages: Message[] = [
+    const messages = [
       { role: "user", content: "hello" },
       { role: "assistant", content: "안녕하세요" },
     ];
-    const expected = estimateTokens("hello") + estimateTokens("안녕하세요") + 4 + 4;
+    const expected =
+      estimateTokens("hello") + estimateTokens("안녕하세요") + 4 + 4;
     expect(estimateMessagesTokens(messages)).toBe(expected);
   });
 
-  it("handles content array with no text blocks", () => {
-    const content = [{ type: "tool_use", id: "1", name: "foo" }];
-    const messages = [{ role: "assistant", content }];
-    expect(estimateMessagesTokens(messages)).toBe(4); // overhead only
-  });
-
-  it("skips content blocks without text field", () => {
+  it("counts image block tokens for multimodal inputs", () => {
     const content = [
-      { type: "text", text: "hi" },
-      { type: "tool_result", tool_use_id: "1" },
+      { type: "text", text: "see this:" },
+      { type: "image", source: { type: "base64", data: "..." } },
     ];
     const messages = [{ role: "user", content }];
-    const expected = estimateTokens("hi") + 4;
-    expect(estimateMessagesTokens(messages)).toBe(expected);
+    const result = estimateMessagesTokens(messages);
+    expect(result).toBeGreaterThan(estimateTokens("see this:") + 4);
+  });
+
+  it("does NOT drop unknown block types silently", () => {
+    const content = [{ type: "weirdo_block", data: "X".repeat(400) }];
+    const messages = [{ role: "assistant", content }];
+    const result = estimateMessagesTokens(messages);
+    expect(result).toBeGreaterThan(4);
   });
 });
