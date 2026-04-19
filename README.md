@@ -7,9 +7,8 @@ Smart model routing + context compression proxy for OpenClaw.
 
 - 🧠 **Smart Routing**: Signal-based escalation → LIGHT tries first, auto-escalates to MEDIUM/HEAVY when needed
 - 📦 **Context Compression**: Preemptive background summarization at configurable threshold (default 75%)
-- 🔌 **All Providers**: Supports all OpenClaw providers via 6 API format adapters
+- 🔌 **All Providers**: Supports all OpenClaw providers via 7 API format adapters (Anthropic, OpenAI Chat Completions, OpenAI Responses, OpenAI Codex, Google, Ollama, Bedrock)
 - ⚡ **Zero Config Auth**: Uses OpenClaw's existing provider credentials — no separate API keys
-- 📊 **Cost Tracking**: Real-time savings stats at /stats endpoint
 - 🔄 **Hot Reload**: Config changes apply without restart
 
 ## Installation
@@ -40,9 +39,9 @@ Adjust as needed:
   },
   "routing": {
     "models": {
-      "LIGHT": "zai/glm-5-turbo",            // fast & cheap first attempt (openai-completions)
-      "MEDIUM": "google/gemini-2.5-flash",   // balanced middle tier (google-generative-ai)
-      "HEAVY": "anthropic/claude-opus-4-5"   // most capable terminal tier (anthropic-messages)
+      "LIGHT": "zai/glm-5-turbo",               // fast & cheap first attempt (openai-completions)
+      "MEDIUM": "anthropic/claude-sonnet-4.5",  // balanced middle tier (anthropic-messages)
+      "HEAVY": "openai/gpt-5.4"                 // most capable terminal tier (openai-completions)
       // Model IDs use 'provider/model' format. Do NOT use "clawmux" as provider — causes infinite loops
     }
   },
@@ -57,21 +56,23 @@ Config is watched for changes. Edit `~/.openclaw/clawmux.json` while the proxy i
 
 ### Cross-Provider Routing
 
-Mix models from different providers by tier. ClawMux automatically translates request and response formats between providers:
+The default example above already mixes three providers (ZAI, Anthropic, OpenAI). You can swap in any combination, as long as every provider you reference is configured in your `openclaw.json`. A Google + Anthropic + OpenAI mix:
 
 ```jsonc
 {
   "routing": {
     "models": {
-      "LIGHT": "zai/glm-5",                          // ZAI (openai-completions)
-      "MEDIUM": "anthropic/claude-sonnet-4-20250514",  // Anthropic (anthropic-messages)
-      "HEAVY": "openai/gpt-5.4"                       // OpenAI (openai-completions)
+      "LIGHT": "google/gemini-2.5-flash",       // Google (google-generative-ai)
+      "MEDIUM": "anthropic/claude-sonnet-4.5",  // Anthropic (anthropic-messages)
+      "HEAVY": "openai/gpt-5.4"                 // OpenAI (openai-completions)
     }
   }
 }
 ```
 
-All three providers must be configured in your `openclaw.json`. ClawMux handles format translation transparently — a request arriving in Anthropic format gets translated to OpenAI format when routed to GPT, and the response is translated back to Anthropic format before returning to OpenClaw.
+If you've authenticated a provider through OpenClaw that's not in the pi-ai catalog (for example a ChatGPT subscription registered as `openai-codex` with `api: openai-codex-responses`), you can reference its model IDs here too — ClawMux routes through whatever OpenClaw already knows about.
+
+ClawMux handles format translation transparently — a request arriving in Anthropic format gets translated to OpenAI format when routed to GPT, and the response is translated back to Anthropic format before returning to OpenClaw.
 
 Supported translation pairs: Anthropic ↔ OpenAI ↔ Google ↔ Ollama ↔ Bedrock (all combinations).
 
@@ -111,7 +112,7 @@ ClawMux resolves each model's context window using this priority chain:
 
 1. **~/.openclaw/clawmux.json** `routing.contextWindows` — explicit per-model override
 2. **openclaw.json** `models.providers[provider].models[].contextWindow` — user config
-3. **OpenClaw built-in catalog** — pi-ai model database (830+ models)
+3. **OpenClaw built-in catalog** — pi-ai model database (890+ models, updated regularly)
 4. **Default: 200,000 tokens**
 
 Compression threshold uses the **minimum** context window across all routing models, since compression happens before routing decides which model to use.
@@ -121,7 +122,7 @@ Compression threshold uses the **minimum** context window across all routing mod
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/health` | Health check |
-| `GET` | `/stats` | Cost savings statistics |
+| `GET` | `/v1/models` | OpenAI-compatible model list (used by OpenClaw for validation) |
 | `POST` | `/v1/messages` | Anthropic Messages |
 | `POST` | `/v1/chat/completions` | OpenAI Chat Completions |
 | `POST` | `/v1/responses` | OpenAI Responses |

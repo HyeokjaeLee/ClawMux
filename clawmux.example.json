@@ -3,16 +3,16 @@
   "compression": {
     "threshold": 0.75,
     "_comment_threshold": "Token ratio (0.1–0.95) that triggers context compression.",
-    "model": "anthropic/claude-3-5-haiku-20241022",
+    "model": "zai/glm-5-turbo",
     "_comment_model": "Model ID in 'provider/model' format used for the compression summarisation call.",
     "targetRatio": 0.6,
     "_comment_targetRatio": "Desired compression ratio (0.2–0.9). 0.6 = compress to 60% of original."
   },
   "routing": {
     "models": {
-      "LIGHT": "anthropic/claude-3-5-haiku-20241022",
-      "MEDIUM": "anthropic/claude-sonnet-4-20250514",
-      "HEAVY": "anthropic/claude-opus-4-20250514",
+      "LIGHT": "zai/glm-5-turbo",
+      "MEDIUM": "anthropic/claude-sonnet-4.5",
+      "HEAVY": "openai/gpt-5.4",
       "_comment_models": "Model IDs in 'provider/model' format for each routing tier. Do NOT use provider names starting with 'clawmux-' — this causes infinite loops."
     },
     "escalation": {
