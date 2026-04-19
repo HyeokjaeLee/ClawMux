@@ -109,7 +109,7 @@ ClawMux resolves each model's context window using this priority chain:
 
 1. **~/.openclaw/clawmux.json** `routing.contextWindows` — explicit per-model override
 2. **openclaw.json** `models.providers[provider].models[].contextWindow` — user config
-3. **OpenClaw built-in catalog** — pi-ai model database (812+ models)
+3. **OpenClaw built-in catalog** — pi-ai model database (830+ models)
 4. **Default: 200,000 tokens**
 
 Compression threshold uses the **minimum** context window across all routing models, since compression happens before routing decides which model to use.

@@ -1,4 +1,4 @@
-import type { AssistantMessageEventStream } from "@mariozechner/pi-ai";
+import type { AssistantMessageEvent, AssistantMessageEventStream } from "@mariozechner/pi-ai";
 
 const encoder = new TextEncoder();
 
@@ -19,7 +19,7 @@ function genId(): string {
 }
 
 export function piStreamToOpenAiResponsesSse(
-  piStream: AssistantMessageEventStream,
+  piStream: AsyncIterable<AssistantMessageEvent>,
 ): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -188,10 +188,9 @@ export function piStreamToOpenAiResponsesSse(
   });
 }
 
-export async function piStreamToOpenAiResponsesJson(
-  piStream: AssistantMessageEventStream,
-): Promise<Record<string, unknown>> {
-  const msg = await piStream.result();
+export function openAiResponsesMessageFromAssistant(
+  msg: import("@mariozechner/pi-ai").AssistantMessage,
+): Record<string, unknown> {
   const output: Array<Record<string, unknown>> = [];
   for (const c of msg.content) {
     if (c.type === "text") {
@@ -231,4 +230,11 @@ export async function piStreamToOpenAiResponsesJson(
       total_tokens: inputTokens + outputTokens,
     },
   };
+}
+
+export async function piStreamToOpenAiResponsesJson(
+  piStream: AssistantMessageEventStream,
+): Promise<Record<string, unknown>> {
+  const msg = await piStream.result();
+  return openAiResponsesMessageFromAssistant(msg);
 }

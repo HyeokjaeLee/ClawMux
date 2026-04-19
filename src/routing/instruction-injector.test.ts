@@ -103,11 +103,11 @@ describe("injectEscalationInstruction", () => {
 });
 
 describe("INJECT_FOR_TIERS", () => {
-  it("contains only LIGHT", () => {
+  it("contains LIGHT and MEDIUM but excludes HEAVY", () => {
     expect(INJECT_FOR_TIERS.has("LIGHT")).toBe(true);
-    expect(INJECT_FOR_TIERS.has("MEDIUM")).toBe(false);
+    expect(INJECT_FOR_TIERS.has("MEDIUM")).toBe(true);
     expect(INJECT_FOR_TIERS.has("HEAVY")).toBe(false);
-    expect(INJECT_FOR_TIERS.size).toBe(1);
+    expect(INJECT_FOR_TIERS.size).toBe(2);
   });
 });
 

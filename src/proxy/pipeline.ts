@@ -26,10 +26,26 @@ import { stream as piStream } from "@mariozechner/pi-ai";
 import { buildPiAiModel } from "../pi-bridge/model-builder.ts";
 import { buildPiContext } from "../pi-bridge/context-builder.ts";
 import { buildPiOptions } from "../pi-bridge/options-builder.ts";
-import { piStreamToAnthropicSse, piStreamToAnthropicJson } from "../pi-bridge/event-to-anthropic.ts";
-import { piStreamToOpenAiCompletionsSse, piStreamToOpenAiCompletionsJson } from "../pi-bridge/event-to-openai-completions.ts";
-import { piStreamToOpenAiResponsesSse, piStreamToOpenAiResponsesJson } from "../pi-bridge/event-to-openai-responses.ts";
-import { piStreamToGoogleSse, piStreamToGoogleJson } from "../pi-bridge/event-to-google.ts";
+import {
+  piStreamToAnthropicSse,
+  piStreamToAnthropicJson,
+  anthropicMessageFromAssistant,
+} from "../pi-bridge/event-to-anthropic.ts";
+import {
+  piStreamToOpenAiCompletionsSse,
+  piStreamToOpenAiCompletionsJson,
+  openAiCompletionsMessageFromAssistant,
+} from "../pi-bridge/event-to-openai-completions.ts";
+import {
+  piStreamToOpenAiResponsesSse,
+  piStreamToOpenAiResponsesJson,
+  openAiResponsesMessageFromAssistant,
+} from "../pi-bridge/event-to-openai-responses.ts";
+import {
+  piStreamToGoogleSse,
+  piStreamToGoogleJson,
+  googleMessageFromAssistant,
+} from "../pi-bridge/event-to-google.ts";
 
 registerAdapter(new AnthropicAdapter());
 
@@ -370,39 +386,17 @@ export async function handleApiRequest(
         const detector = signalRouter.createSignalDetector();
         const detectionState = createSignalDetectionState();
 
-        if (wantsStream) {
-          const signalGen = detectSignalInStream(piStreamHandle, detector, detectionState, () => {});
-          const sseBody = piStreamToAnthropicSseFromGenerator(signalGen);
-          const response = new Response(sseBody, {
-            status: 200,
-            headers: { "content-type": "text/event-stream" },
-          });
-
-          void response.clone().text().then(() => {
-            if (detectionState.signalDetected) {
-              abortCtrl.abort();
-              const nextTier = signalRouter.handleEscalation(messages, currentTier);
-              if (nextTier !== null) {
-                console.log(`[clawmux] [escalation] ${currentTier} → ${nextTier} (signal detected)`);
-                currentTier = nextTier;
-                return;
-              }
-            }
-            signalRouter.touchActivity(messages);
-            if (attempt > 0) {
-              signalRouter.recordSuccessfulEscalation(messages, currentTier as "MEDIUM" | "HEAVY");
-            }
-          });
-
-          return response;
-        }
-
-        const fullText = await collectPiStreamText(piStreamHandle, detector, detectionState);
+        const assistantMsg = await collectPiStreamWithSignalDetection(
+          piStreamHandle,
+          detector,
+          detectionState,
+        );
 
         if (detectionState.signalDetected) {
+          abortCtrl.abort();
           const nextTier = signalRouter.handleEscalation(messages, currentTier);
           if (nextTier !== null) {
-            console.log(`[clawmux] [escalation] ${currentTier} → ${nextTier} (signal detected in non-streaming)`);
+            console.log(`[clawmux] [escalation] ${currentTier} → ${nextTier} (signal detected)`);
             currentTier = nextTier;
             continue;
           }
@@ -413,7 +407,16 @@ export async function handleApiRequest(
           signalRouter.recordSuccessfulEscalation(messages, currentTier as "MEDIUM" | "HEAVY");
         }
 
-        return new Response(JSON.stringify(fullText), {
+        if (wantsStream) {
+          const sseBody = buildSseForApiType(apiType, replayAssistantMessageAsEvents(assistantMsg));
+          return new Response(sseBody, {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          });
+        }
+
+        const jsonBody = buildJsonForApiType(apiType, assistantMsg);
+        return new Response(JSON.stringify(jsonBody), {
           status: 200,
           headers: { "content-type": "application/json" },
         });
@@ -756,196 +759,79 @@ async function yieldPiAiResponse(
   throw new Error(`Unsupported pi-ai apiType: ${apiType}`);
 }
 
-function piStreamToAnthropicSseFromGenerator(
-  gen: AsyncGenerator<import("@mariozechner/pi-ai").AssistantMessageEvent>,
+function buildSseForApiType(
+  apiType: string,
+  gen: AsyncIterable<import("@mariozechner/pi-ai").AssistantMessageEvent>,
 ): ReadableStream<Uint8Array> {
-  const encoder = new TextEncoder();
-  function sseFrame(event: string, data: unknown): Uint8Array {
-    return encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-  }
-
-  return new ReadableStream<Uint8Array>({
-    async start(controller) {
-      try {
-        let messageStarted = false;
-        const openBlocks = new Map<number, "text" | "thinking" | "tool_use">();
-
-        const ensureMessageStart = (model: string) => {
-          if (messageStarted) return;
-          messageStarted = true;
-          controller.enqueue(
-            sseFrame("message_start", {
-              type: "message_start",
-              message: {
-                id: "msg_" + Date.now().toString(36),
-                type: "message",
-                role: "assistant",
-                content: [],
-                model,
-                stop_reason: null,
-                stop_sequence: null,
-                usage: { input_tokens: 0, output_tokens: 0 },
-              },
-            }),
-          );
-        };
-
-        for await (const event of gen) {
-          if (event.type === "start") {
-            ensureMessageStart(event.partial.model || "");
-          } else if (event.type === "text_start") {
-            ensureMessageStart(event.partial.model || "");
-            openBlocks.set(event.contentIndex, "text");
-            controller.enqueue(
-              sseFrame("content_block_start", {
-                type: "content_block_start",
-                index: event.contentIndex,
-                content_block: { type: "text", text: "" },
-              }),
-            );
-          } else if (event.type === "text_delta") {
-            if (openBlocks.get(event.contentIndex) !== "text") {
-              ensureMessageStart(event.partial.model || "");
-              openBlocks.set(event.contentIndex, "text");
-              controller.enqueue(
-                sseFrame("content_block_start", {
-                  type: "content_block_start",
-                  index: event.contentIndex,
-                  content_block: { type: "text", text: "" },
-                }),
-              );
-            }
-            controller.enqueue(
-              sseFrame("content_block_delta", {
-                type: "content_block_delta",
-                index: event.contentIndex,
-                delta: { type: "text_delta", text: event.delta },
-              }),
-            );
-          } else if (event.type === "text_end") {
-            if (openBlocks.get(event.contentIndex) === "text") {
-              controller.enqueue(
-                sseFrame("content_block_stop", {
-                  type: "content_block_stop",
-                  index: event.contentIndex,
-                }),
-              );
-              openBlocks.delete(event.contentIndex);
-            }
-          } else if (event.type === "done") {
-            for (const [idx] of openBlocks) {
-              controller.enqueue(
-                sseFrame("content_block_stop", {
-                  type: "content_block_stop",
-                  index: idx,
-                }),
-              );
-            }
-            openBlocks.clear();
-            controller.enqueue(
-              sseFrame("message_delta", {
-                type: "message_delta",
-                delta: { stop_reason: "end_turn", stop_sequence: null },
-                usage: { output_tokens: event.message.usage?.output ?? 0 },
-              }),
-            );
-            controller.enqueue(sseFrame("message_stop", { type: "message_stop" }));
-          } else if (event.type === "error") {
-            for (const [idx] of openBlocks) {
-              controller.enqueue(
-                sseFrame("content_block_stop", {
-                  type: "content_block_stop",
-                  index: idx,
-                }),
-              );
-            }
-            openBlocks.clear();
-            controller.enqueue(
-              sseFrame("error", {
-                type: "error",
-                error: {
-                  type: "api_error",
-                  message: event.error?.errorMessage ?? "Unknown error",
-                },
-              }),
-            );
-          }
-        }
-        controller.close();
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        controller.enqueue(
-          sseFrame("error", {
-            type: "error",
-            error: { type: "api_error", message: msg },
-          }),
-        );
-        controller.close();
-      }
-    },
-  });
+  if (apiType === "anthropic-messages") return piStreamToAnthropicSse(gen);
+  if (apiType === "openai-completions") return piStreamToOpenAiCompletionsSse(gen);
+  if (apiType === "openai-responses") return piStreamToOpenAiResponsesSse(gen);
+  if (apiType === "google-generative-ai") return piStreamToGoogleSse(gen);
+  return piStreamToAnthropicSse(gen);
 }
 
-async function collectPiStreamText(
+function buildJsonForApiType(
+  apiType: string,
+  msg: import("@mariozechner/pi-ai").AssistantMessage,
+): Record<string, unknown> {
+  if (apiType === "anthropic-messages") return anthropicMessageFromAssistant(msg);
+  if (apiType === "openai-completions") return openAiCompletionsMessageFromAssistant(msg);
+  if (apiType === "openai-responses") return openAiResponsesMessageFromAssistant(msg);
+  if (apiType === "google-generative-ai") return googleMessageFromAssistant(msg);
+  return anthropicMessageFromAssistant(msg);
+}
+
+async function drainSignalGenerator(
+  gen: AsyncIterable<import("@mariozechner/pi-ai").AssistantMessageEvent>,
+): Promise<void> {
+  for await (const _event of gen) {
+    void _event;
+  }
+}
+
+async function* replayAssistantMessageAsEvents(
+  msg: import("@mariozechner/pi-ai").AssistantMessage,
+): AsyncGenerator<import("@mariozechner/pi-ai").AssistantMessageEvent> {
+  type Event = import("@mariozechner/pi-ai").AssistantMessageEvent;
+  const partial = msg;
+
+  yield { type: "start", partial } as Event;
+
+  for (let i = 0; i < msg.content.length; i++) {
+    const block = msg.content[i]!;
+    if (block.type === "text") {
+      yield { type: "text_start", contentIndex: i, partial } as Event;
+      if (block.text.length > 0) {
+        yield { type: "text_delta", contentIndex: i, delta: block.text, partial } as Event;
+      }
+      yield { type: "text_end", contentIndex: i, content: block.text, partial } as Event;
+    } else if (block.type === "thinking") {
+      yield { type: "thinking_start", contentIndex: i, partial } as Event;
+      if (block.thinking.length > 0) {
+        yield { type: "thinking_delta", contentIndex: i, delta: block.thinking, partial } as Event;
+      }
+      yield { type: "thinking_end", contentIndex: i, content: block.thinking, partial } as Event;
+    } else if (block.type === "toolCall") {
+      yield { type: "toolcall_start", contentIndex: i, partial } as Event;
+      const argsJson = JSON.stringify(block.arguments ?? {});
+      if (argsJson.length > 0 && argsJson !== "{}") {
+        yield { type: "toolcall_delta", contentIndex: i, delta: argsJson, partial } as Event;
+      }
+      yield { type: "toolcall_end", contentIndex: i, toolCall: block, partial } as Event;
+    }
+  }
+
+  yield { type: "done", reason: msg.stopReason, message: msg } as Event;
+}
+
+async function collectPiStreamWithSignalDetection(
   piStreamHandle: import("@mariozechner/pi-ai").AssistantMessageEventStream,
   detector: import("../routing/signal-detector.ts").SignalDetector,
   state: SignalDetectionState,
-): Promise<Record<string, unknown>> {
-  const msg = await piStreamHandle.result();
-  const fullText = msg.content
-    .filter((c): c is { type: "text"; text: string } => c.type === "text")
-    .map((c) => c.text)
-    .join("");
-
-  const results = detector.feedChunk(fullText);
-  for (const r of results) {
-    if (r.type === "signal_detected") {
-      state.signalDetected = true;
-      break;
-    }
-  }
-  detector.flush();
-
-  const STOP_REASON_MAP: Record<string, string> = {
-    stop: "end_turn",
-    length: "max_tokens",
-    toolUse: "tool_use",
-    error: "end_turn",
-    aborted: "end_turn",
-  };
-
-  const blocks: Array<Record<string, unknown>> = [];
-  for (const c of msg.content) {
-    if (c.type === "text") {
-      blocks.push({ type: "text", text: c.text });
-    } else if (c.type === "thinking") {
-      blocks.push({
-        type: "thinking",
-        thinking: c.thinking,
-        ...(c.thinkingSignature ? { signature: c.thinkingSignature } : {}),
-      });
-    } else if (c.type === "toolCall") {
-      blocks.push({
-        type: "tool_use",
-        id: c.id,
-        name: c.name,
-        input: c.arguments ?? {},
-      });
-    }
-  }
-  return {
-    id: "msg_" + Date.now().toString(36),
-    type: "message",
-    role: "assistant",
-    content: blocks,
-    model: msg.model || "",
-    stop_reason: STOP_REASON_MAP[msg.stopReason] ?? "end_turn",
-    stop_sequence: null,
-    usage: {
-      input_tokens: msg.usage?.input ?? 0,
-      output_tokens: msg.usage?.output ?? 0,
-    },
-  };
+): Promise<import("@mariozechner/pi-ai").AssistantMessage> {
+  const signalGen = detectSignalInStream(piStreamHandle, detector, state, () => {});
+  await drainSignalGenerator(signalGen);
+  return await piStreamHandle.result();
 }
 
 interface RouteMapping {

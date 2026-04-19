@@ -44,10 +44,11 @@
 - Set `CLAWMUX_PIAI=0` to bypass the pi-ai path (e.g., for legacy adapter tests).
 
 ## Signal-Based Escalation Routing
-- All requests start at LIGHT tier. The LIGHT model receives an injected instruction to emit `===CLAWMUX_ESCALATE===` if it cannot handle the request.
-- When the signal is detected in the model's output, the request is automatically retried at the next tier (LIGHT→MEDIUM→HEAVY, max 3 attempts).
-- Escalation memory tracks sessions by fingerprint (first N messages) and sticks to the escalated tier with dual TTL: active (5 min idle) and max lifetime (2 hours).
-- HEAVY tier never receives instruction injection or signal detection — it is the final tier.
-- Kill switch: set `routing.escalation.enabled` to `false` in config to bypass signal routing and always use MEDIUM tier.
-- Config: `src/routing/signal-router.ts`, `src/routing/signal-detector.ts`, `src/routing/escalation-memory.ts`, `src/routing/instruction-injector.ts`.
+- All requests start at LIGHT tier (or at the remembered tier if escalation memory holds a record for the session fingerprint).
+- Both LIGHT and MEDIUM receive an injected instruction to emit `===CLAWMUX_ESCALATE===` if they cannot handle the request. HEAVY is the terminal tier and never receives injection or signal detection.
+- When the signal is detected in the model's streaming output, the request is transparently retried at the next tier (LIGHT→MEDIUM→HEAVY, max 3 attempts per request).
+- `INJECT_FOR_TIERS` in `src/routing/instruction-injector.ts` is the single source of truth for which tiers get the escalation instruction.
+- Escalation memory (`src/routing/escalation-memory.ts`) tracks sessions by fingerprint (first N messages, default 5) and sticks to the escalated tier with dual TTL: active (5 min idle) and max lifetime (2 hours). Follow-up requests in the same session skip LIGHT/MEDIUM and go straight to the remembered tier.
+- Kill switch: set `routing.escalation.enabled` to `false` in `~/.openclaw/clawmux.json` to bypass signal routing entirely and always use MEDIUM tier.
+- Config touch points: `src/routing/signal-router.ts`, `src/routing/signal-detector.ts`, `src/routing/escalation-memory.ts`, `src/routing/instruction-injector.ts`.
 - Upstream retry: `fetchWithRetry()` in `src/proxy/pipeline.ts` retries 429/500/502/503 and network errors with exponential backoff (respects `Retry-After`, max 3 retries).

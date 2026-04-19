@@ -1,4 +1,8 @@
-import type { AssistantMessageEventStream, ToolCall } from "@mariozechner/pi-ai";
+import type {
+  AssistantMessageEvent,
+  AssistantMessageEventStream,
+  ToolCall,
+} from "@mariozechner/pi-ai";
 
 const encoder = new TextEncoder();
 
@@ -15,7 +19,7 @@ const STOP_REASON_MAP: Record<string, string> = {
 };
 
 export function piStreamToAnthropicSse(
-  piStream: AssistantMessageEventStream,
+  piStream: AsyncIterable<AssistantMessageEvent>,
 ): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -267,10 +271,9 @@ export function piStreamToAnthropicSse(
   });
 }
 
-export async function piStreamToAnthropicJson(
-  piStream: AssistantMessageEventStream,
-): Promise<Record<string, unknown>> {
-  const msg = await piStream.result();
+export function anthropicMessageFromAssistant(
+  msg: import("@mariozechner/pi-ai").AssistantMessage,
+): Record<string, unknown> {
   if (
     (msg.stopReason === "error" || msg.stopReason === "aborted") &&
     msg.errorMessage
@@ -312,4 +315,11 @@ export async function piStreamToAnthropicJson(
     },
     ...(msg.errorMessage ? { error_message: msg.errorMessage } : {}),
   };
+}
+
+export async function piStreamToAnthropicJson(
+  piStream: AssistantMessageEventStream,
+): Promise<Record<string, unknown>> {
+  const msg = await piStream.result();
+  return anthropicMessageFromAssistant(msg);
 }

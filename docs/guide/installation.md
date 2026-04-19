@@ -105,7 +105,7 @@ openclaw provider clawmux
 openclaw chat
 ```
 
-Send a simple message like "hi" — it should route to the LIGHT model. Send a complex question — it should route to HEAVY.
+Send a simple message like "hi" — ClawMux starts at LIGHT and handles it there. If a request is beyond LIGHT's capability, the model emits the escalation signal and ClawMux transparently retries at MEDIUM, then HEAVY if needed.
 
 ### Step 7: Switch Agent and Session Models (optional)
 
@@ -134,15 +134,14 @@ Setup is complete.
 | | Node.js | Bun |
 |---|---|---|
 | Install | `npx clawmux@latest init` | `bunx clawmux@latest init` |
-| Startup | ~3s (model load) | ~3s (model load) |
-| Classification | ~8ms p50 | ~8ms p50 |
+| Startup | <1s | <1s |
 | HTTP Server | `node:http` + Web API adapter | `Bun.serve()` native |
 
 Both runtimes use the same codebase. Bun is recommended for faster HTTP performance.
 
 ## Registered Provider
 
-After installation, the `clawmux` provider is available in OpenClaw with model `auto`. It accepts all API formats and routes requests based on complexity classification.
+After installation, the `clawmux` provider is available in OpenClaw with model `auto`. It accepts all API formats and routes requests using signal-based escalation (LIGHT → MEDIUM → HEAVY) with transparent format translation between providers.
 
 ## Environment Variables
 

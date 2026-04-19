@@ -1,4 +1,4 @@
-import type { AssistantMessageEventStream } from "@mariozechner/pi-ai";
+import type { AssistantMessageEvent, AssistantMessageEventStream } from "@mariozechner/pi-ai";
 
 const encoder = new TextEncoder();
 
@@ -15,7 +15,7 @@ const FINISH_REASON_MAP: Record<string, string> = {
 };
 
 export function piStreamToGoogleSse(
-  piStream: AssistantMessageEventStream,
+  piStream: AsyncIterable<AssistantMessageEvent>,
 ): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -133,10 +133,9 @@ export function piStreamToGoogleSse(
   });
 }
 
-export async function piStreamToGoogleJson(
-  piStream: AssistantMessageEventStream,
-): Promise<Record<string, unknown>> {
-  const msg = await piStream.result();
+export function googleMessageFromAssistant(
+  msg: import("@mariozechner/pi-ai").AssistantMessage,
+): Record<string, unknown> {
   const parts: Array<Record<string, unknown>> = [];
   for (const c of msg.content) {
     if (c.type === "text") {
@@ -167,4 +166,11 @@ export async function piStreamToGoogleJson(
     },
     modelVersion: msg.model || "",
   };
+}
+
+export async function piStreamToGoogleJson(
+  piStream: AssistantMessageEventStream,
+): Promise<Record<string, unknown>> {
+  const msg = await piStream.result();
+  return googleMessageFromAssistant(msg);
 }

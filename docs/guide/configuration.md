@@ -29,14 +29,16 @@ If no providers are authenticated, tell the user:
 
 ### Step 2: Ask the User About Model Assignment
 
-Ask the user which models to use for each tier. Explain the tiers:
+Ask the user which models to use for each tier. ClawMux tries LIGHT first and auto-escalates to MEDIUM and HEAVY only when the model itself signals it cannot handle the request. Explain the tiers:
 
-| Tier | Purpose | Ideal Model |
+| Tier | Role | Ideal Model |
 |---|---|---|
-| **LIGHT** | Greetings, yes/no, simple factual questions | Cheapest/fastest (e.g., Haiku, GPT-4o-mini, GLM Flash) |
-| **MEDIUM** | Coding tasks, explanations, single-file edits | Balanced (e.g., Sonnet, GPT-4o) |
-| **HEAVY** | Architecture design, multi-domain analysis, debugging | Most capable (e.g., Opus, GPT-5.4) |
+| **LIGHT** | First attempt for every new session. Should handle most everyday requests and cleanly escalate when a request is beyond its capability. | Cheapest/fastest (e.g., Haiku, GPT-4o-mini, GLM Flash) |
+| **MEDIUM** | Runs only when LIGHT escalates. Handles typical coding, explanations, and single-file edits. | Balanced (e.g., Sonnet, GPT-4o) |
+| **HEAVY** | Terminal tier — runs only when MEDIUM also escalates. Used for architecture design, multi-domain analysis, or deep debugging. | Most capable (e.g., Opus, GPT-5.4) |
 | **compression.model** | Background summarization of long conversations | Same as LIGHT (fast and cheap) |
+
+Escalation is signal-based, not heuristic: LIGHT and MEDIUM receive an injected instruction that lets them emit `===CLAWMUX_ESCALATE===` when they want to hand off. HEAVY never receives the instruction, so its prompt stays clean.
 
 If the user doesn't have a preference, recommend models based on their **authenticated** providers only.
 
@@ -144,6 +146,30 @@ Per-model context window overrides in tokens:
 }
 ```
 
+#### routing.escalation (optional)
+
+Controls signal-based escalation behavior.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `enabled` | boolean | `true` | When `false`, bypass signal routing entirely and always use the MEDIUM model. No injection, no detection, no memory lookup. |
+| `activeThresholdMs` | number | `300000` (5 min) | Evict a session's remembered tier if no request touches it for this long. |
+| `maxLifetimeMs` | number | `7200000` (2 h) | Hard cap on how long a remembered tier survives from the initial escalation, regardless of activity. |
+| `fingerprintRootCount` | number | `5` | Number of leading messages used to fingerprint a session for memory lookup. |
+
+```json
+{
+  "routing": {
+    "escalation": {
+      "enabled": true,
+      "activeThresholdMs": 300000,
+      "maxLifetimeMs": 7200000,
+      "fingerprintRootCount": 5
+    }
+  }
+}
+```
+
 ### server (optional)
 
 | Field | Type | Default | Description |
@@ -163,7 +189,7 @@ ClawMux resolves each model's context window in this order:
 
 1. `~/.openclaw/clawmux.json` → `routing.contextWindows` (explicit override)
 2. `openclaw.json` → provider model config
-3. OpenClaw built-in catalog (833+ models)
+3. OpenClaw built-in catalog (830+ models)
 4. Default: 200,000 tokens
 
 Compression uses the **minimum** context window across all routing models.

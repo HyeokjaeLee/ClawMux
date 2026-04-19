@@ -20,7 +20,12 @@ function djb2Hash(text: string): string {
   return (hash >>> 0).toString(16);
 }
 
-function extractText(content: string | ReadonlyArray<{ type: string; text?: string }>): string {
+function extractText(
+  content: string | ReadonlyArray<{ type: string; text?: string }> | null | undefined,
+): string {
+  if (content === null || content === undefined) {
+    return "";
+  }
   if (typeof content === "string") {
     return content.slice(0, 200);
   }
@@ -33,7 +38,12 @@ function extractText(content: string | ReadonlyArray<{ type: string; text?: stri
   return concatenated.slice(0, 200);
 }
 
-function contentLength(content: string | ReadonlyArray<{ type: string; text?: string }>): number {
+function contentLength(
+  content: string | ReadonlyArray<{ type: string; text?: string }> | null | undefined,
+): number {
+  if (content === null || content === undefined) {
+    return 0;
+  }
   if (typeof content === "string") {
     return content.length;
   }

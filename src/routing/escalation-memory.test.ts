@@ -79,6 +79,25 @@ describe("EscalationMemory", () => {
       };
       expect(mem.fingerprint([stringMsg])).toBe(mem.fingerprint([blockMsg]));
     });
+
+    it("16: null content (OpenAI tool_calls-only assistant) — fingerprint does not throw", () => {
+      const mem = new EscalationMemory(defaultConfig);
+      const msgs: Message[] = [
+        { role: "user", content: "hello" },
+        { role: "assistant", content: null },
+      ];
+      expect(() => mem.fingerprint(msgs)).not.toThrow();
+      const fp = mem.fingerprint(msgs);
+      expect(typeof fp).toBe("string");
+      expect(fp.length).toBeGreaterThan(0);
+    });
+
+    it("17: null content behaves like empty string for fingerprint equality", () => {
+      const mem = new EscalationMemory(defaultConfig);
+      const nullMsg: Message = { role: "assistant", content: null };
+      const emptyMsg: Message = { role: "assistant", content: "" };
+      expect(mem.fingerprint([nullMsg])).toBe(mem.fingerprint([emptyMsg]));
+    });
   });
 
   describe("lookup / record", () => {

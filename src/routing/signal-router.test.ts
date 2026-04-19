@@ -58,9 +58,9 @@ describe("SignalRouter", () => {
     expect(router.shouldInjectInstruction("LIGHT")).toBe(true);
   });
 
-  it("shouldInjectInstruction(MEDIUM) → false", () => {
+  it("shouldInjectInstruction(MEDIUM) → true", () => {
     const router = makeRouter(true);
-    expect(router.shouldInjectInstruction("MEDIUM")).toBe(false);
+    expect(router.shouldInjectInstruction("MEDIUM")).toBe(true);
   });
 
   it("shouldInjectInstruction(HEAVY) → false", () => {
@@ -129,15 +129,18 @@ describe("SignalRouter", () => {
     expect(a).not.toBe(b);
   });
 
-  it("injectInstructionIfNeeded(LIGHT, msgs) returns modified array; MEDIUM returns same reference", () => {
+  it("injectInstructionIfNeeded injects for LIGHT and MEDIUM; HEAVY returns same reference", () => {
     const router = makeRouter();
     const lightResult = router.injectInstructionIfNeeded("LIGHT", msgs);
-    // Modified: new array with system message prepended/appended
     expect(lightResult.length).toBeGreaterThan(msgs.length);
     expect(lightResult[0]!.role).toBe("system");
 
     const mediumResult = router.injectInstructionIfNeeded("MEDIUM", msgs);
-    expect(mediumResult).toBe(msgs); // same reference
+    expect(mediumResult.length).toBeGreaterThan(msgs.length);
+    expect(mediumResult[0]!.role).toBe("system");
+
+    const heavyResult = router.injectInstructionIfNeeded("HEAVY", msgs);
+    expect(heavyResult).toBe(msgs);
   });
 
   it("injectInstructionIfNeeded with enabled=false returns same reference even for LIGHT", () => {

@@ -18,10 +18,10 @@ export type RoutingDecision = {
   overrideReason?: string;
 };
 
-/** A single message in the Anthropic messages format. */
+/** A single message. Matches Anthropic array-content or OpenAI string-content, with `null` allowed for assistant messages that carry only tool_calls. */
 export type Message = {
   role: string;
-  content: string | ReadonlyArray<ContentBlock>;
+  content: string | ReadonlyArray<ContentBlock> | null;
 };
 
 /** A content block within an array-format message. */

@@ -1,4 +1,4 @@
-import type { AssistantMessageEventStream } from "@mariozechner/pi-ai";
+import type { AssistantMessageEvent, AssistantMessageEventStream } from "@mariozechner/pi-ai";
 
 const encoder = new TextEncoder();
 
@@ -28,7 +28,7 @@ interface ToolCallState {
 }
 
 export function piStreamToOpenAiCompletionsSse(
-  piStream: AssistantMessageEventStream,
+  piStream: AsyncIterable<AssistantMessageEvent>,
 ): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -258,10 +258,9 @@ export function piStreamToOpenAiCompletionsSse(
   });
 }
 
-export async function piStreamToOpenAiCompletionsJson(
-  piStream: AssistantMessageEventStream,
-): Promise<Record<string, unknown>> {
-  const msg = await piStream.result();
+export function openAiCompletionsMessageFromAssistant(
+  msg: import("@mariozechner/pi-ai").AssistantMessage,
+): Record<string, unknown> {
   let textContent = "";
   const toolCalls: Array<Record<string, unknown>> = [];
   let reasoning = "";
@@ -308,4 +307,11 @@ export async function piStreamToOpenAiCompletionsJson(
       total_tokens: inputTokens + outputTokens,
     },
   };
+}
+
+export async function piStreamToOpenAiCompletionsJson(
+  piStream: AssistantMessageEventStream,
+): Promise<Record<string, unknown>> {
+  const msg = await piStream.result();
+  return openAiCompletionsMessageFromAssistant(msg);
 }
