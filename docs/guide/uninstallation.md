@@ -53,6 +53,45 @@ bun remove -g clawmux
 
 If running from source, simply delete the repository directory.
 
+### Step 3.1: Clear Package Cache
+
+ClawMux may be cached by the package manager. Remove cached versions to free disk space and prevent stale versions from being used later.
+
+**Bun:**
+
+```bash
+bun pm cache rm clawmux
+```
+
+This removes all cached versions from `~/.bun/install/cache/`. You can verify with:
+
+```bash
+ls ~/.bun/install/cache/ | grep clawmux
+```
+
+Expected: no output.
+
+**npm:**
+
+```bash
+npm cache clean --force
+```
+
+Note: `npm cache clean` clears the entire npm cache, not just clawmux. This is safe — npm will re-cache packages as needed. To verify:
+
+```bash
+npm cache ls clawmux 2>/dev/null || echo "No clawmux in cache"
+```
+
+**npx/bunx temporary directories:**
+
+Both `npx` and `bunx` create temporary install directories. Clean them up:
+
+```bash
+rm -rf /tmp/bunx-*clawmux*
+rm -rf /tmp/npx-*clawmux*
+```
+
 ### Step 4: Verify Cleanup
 
 1. Confirm `~/.openclaw/openclaw.json` no longer contains any `clawmux` provider:
