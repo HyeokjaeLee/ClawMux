@@ -3,6 +3,7 @@ import type { ClawMuxConfig } from "../config/types.ts";
 import type { OpenClawConfig, AuthProfile } from "../openclaw/types.ts";
 import type { CompressionMiddleware } from "./compression-integration.ts";
 import { handleApiRequest } from "./pipeline.ts";
+import { SignalRouter } from "../routing/signal-router.ts";
 
 let mockServer: ReturnType<typeof Bun.serve>;
 let mockPort: number;
@@ -70,6 +71,11 @@ function makeRequest(headers?: Record<string, string>): Request {
   });
 }
 
+const testRouter = new SignalRouter({
+  escalation: { activeThresholdMs: 300_000, maxLifetimeMs: 7_200_000, fingerprintRootCount: 5 },
+  enabled: true,
+});
+
 function createMockCompressionMiddleware(
   summaryData?: { summary: string; recentMessages: Array<{ role: string; content: unknown }> },
 ): CompressionMiddleware {
@@ -117,6 +123,7 @@ describe("compaction detection in pipeline", () => {
       makeOpenClawConfig(),
       makeAuthProfiles(),
       middleware,
+      testRouter,
     );
 
     expect(response.status).toBe(200);
@@ -153,6 +160,7 @@ describe("compaction detection in pipeline", () => {
       makeOpenClawConfig(),
       makeAuthProfiles(),
       middleware,
+      testRouter,
     );
 
     expect(response.status).toBe(200);
@@ -183,6 +191,7 @@ describe("compaction detection in pipeline", () => {
       makeOpenClawConfig(),
       makeAuthProfiles(),
       middleware,
+      testRouter,
     );
 
     expect(response.status).toBe(200);
@@ -217,6 +226,7 @@ describe("compaction detection in pipeline", () => {
       makeOpenClawConfig(),
       makeAuthProfiles(),
       middleware,
+      testRouter,
     );
 
     expect(response.status).toBe(200);
@@ -245,6 +255,7 @@ describe("compaction detection in pipeline", () => {
       makeOpenClawConfig(),
       makeAuthProfiles(),
       undefined,
+      testRouter,
     );
 
     expect(response.status).toBe(200);

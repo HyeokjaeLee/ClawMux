@@ -13,8 +13,9 @@ import "../adapters/bedrock.ts";
 import "../adapters/openai-codex.ts";
 import { detectCompaction } from "../compression/compaction-detector.ts";
 import { buildSyntheticSummaryResponse, buildSyntheticHttpResponse } from "../compression/synthetic-response.ts";
-import type { Message, RoutingDecision, ClassificationResult } from "../routing/types.ts";
-import { classifyLocal } from "../routing/local-classifier.ts";
+import type { Message, RoutingDecision } from "../routing/types.ts";
+import { SignalRouter, NEXT_TIER } from "../routing/signal-router.ts";
+import { detectSignalInStream, createSignalDetectionState, type SignalDetectionState } from "./signal-detecting-stream.ts";
 import { resolveApiKey } from "../openclaw/auth-resolver.ts";
 import { translateResponse } from "../adapters/stream-transformer.ts";
 import { collectStreamToResponse } from "../adapters/stream-collector.ts";
@@ -189,7 +190,8 @@ export async function handleApiRequest(
   config: ClawMuxConfig,
   openclawConfig: OpenClawConfig,
   authProfiles: AuthProfile[],
-  compressionMiddleware?: CompressionMiddleware,
+  compressionMiddleware: CompressionMiddleware | undefined,
+  signalRouter: SignalRouter,
 ): Promise<Response> {
   const adapter = getAdapter(apiType);
   if (!adapter) {
@@ -231,13 +233,11 @@ export async function handleApiRequest(
   }
 
   const messages = effectiveParsed.messages as unknown as ReadonlyArray<Message>;
-  const classification = await classifyLocal(messages);
-
+  const initialTier = signalRouter.selectInitialTier(messages);
   const decision: RoutingDecision = {
-    tier: classification.tier,
-    model: config.routing.models[classification.tier],
-    confidence: classification.confidence,
-    overrideReason: classification.reasoning,
+    tier: initialTier,
+    model: config.routing.models[initialTier],
+    confidence: 1,
   };
 
   const lookup = findProviderForModel(decision.model, openclawConfig);
@@ -296,11 +296,6 @@ export async function handleApiRequest(
 
   if (piEligible) {
     try {
-      const model = buildPiAiModel(providerName, actualModelId, openclawConfig);
-      const piContext = buildPiContext(effectiveParsed);
-      applyCodexSystemPromptFallback(piContext, targetApiType);
-      const piOptions = buildPiOptions(effectiveParsed, authInfo, providerName);
-
       const lastUserMsg = [...parsed.messages].reverse().find((m) => m.role === "user");
       const msgText = typeof lastUserMsg?.content === "string"
         ? lastUserMsg.content
@@ -311,73 +306,114 @@ export async function handleApiRequest(
               .join(" ")
           : "";
       const preview = msgText.replace(/\s+/g, " ").trim().slice(0, 100);
-      console.log(
-        `[clawmux] [llm] ${decision.tier} → ${decision.model} | conf=${classification.confidence.toFixed(2)} | pi-ai (${apiType})${preview ? ` | "${preview}${msgText.length > 100 ? "…" : ""}"` : ""}`,
-      );
 
       if (compressionMiddleware) {
         compressionMiddleware.afterResponse(parsed);
       }
 
-      const piStreamHandle = piStream(
-        model,
-        piContext,
-        piOptions as unknown as import("@mariozechner/pi-ai").ProviderStreamOptions,
-      );
-
       const wantsStream = effectiveParsed.stream === true;
+      let currentTier = initialTier;
+      const MAX_ESCALATION_ATTEMPTS = 3;
 
-      if (apiType === "anthropic-messages") {
+      for (let attempt = 0; attempt < MAX_ESCALATION_ATTEMPTS; attempt++) {
+        const currentModel = config.routing.models[currentTier];
+        const currentActualModelId = currentModel.split("/").slice(1).join("/");
+        const currentProviderName = findProviderForModel(currentModel, openclawConfig)?.providerName ?? providerName;
+
+        const currentAuth = resolveApiKey(currentProviderName, openclawConfig, authProfiles);
+        if (!currentAuth) {
+          return jsonErrorResponse(
+            `No auth credentials found for provider: ${currentProviderName}`,
+            502,
+          );
+        }
+        const currentAuthInfo: AuthInfo = {
+          apiKey: currentAuth.apiKey,
+          headerName: currentAuth.headerName,
+          headerValue: currentAuth.headerValue,
+          awsAccessKeyId: currentAuth.awsAccessKeyId,
+          awsSecretKey: currentAuth.awsSecretKey,
+          awsSessionToken: currentAuth.awsSessionToken,
+          awsRegion: currentAuth.awsRegion,
+          accountId: currentAuth.accountId,
+        };
+
+        const model = buildPiAiModel(currentProviderName, currentActualModelId, openclawConfig);
+        const injectedMessages = signalRouter.injectInstructionIfNeeded(currentTier, messages);
+        const injectedParsed = {
+          ...effectiveParsed,
+          messages: injectedMessages as Array<{ role: string; content: unknown }>,
+          rawBody: adapter.modifyMessages(effectiveParsed.rawBody, injectedMessages as Array<{ role: string; content: unknown }>),
+        };
+        const piContext = buildPiContext(injectedParsed);
+        applyCodexSystemPromptFallback(piContext, targetApiType);
+
+        const shouldDetect = signalRouter.enabled && NEXT_TIER[currentTier] !== null;
+
+        const abortCtrl = new AbortController();
+        const piOptions = buildPiOptions(injectedParsed, currentAuthInfo, currentProviderName, abortCtrl.signal);
+
+        console.log(
+          `[clawmux] [llm] ${currentTier} → ${currentModel} | attempt=${attempt + 1} | pi-ai (${apiType})${preview ? ` | "${preview}${msgText.length > 100 ? "…" : ""}"` : ""}`,
+        );
+
+        const piStreamHandle = piStream(
+          model,
+          piContext,
+          piOptions as unknown as import("@mariozechner/pi-ai").ProviderStreamOptions,
+        );
+
+        if (!shouldDetect) {
+          return await yieldPiAiResponse(piStreamHandle, apiType, wantsStream);
+        }
+
+        const detector = signalRouter.createSignalDetector();
+        const detectionState = createSignalDetectionState();
+
         if (wantsStream) {
-          return new Response(piStreamToAnthropicSse(piStreamHandle), {
+          const signalGen = detectSignalInStream(piStreamHandle, detector, detectionState, () => {});
+          const sseBody = piStreamToAnthropicSseFromGenerator(signalGen);
+          const response = new Response(sseBody, {
             status: 200,
             headers: { "content-type": "text/event-stream" },
           });
-        }
-        const json = await piStreamToAnthropicJson(piStreamHandle);
-        return new Response(JSON.stringify(json), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
-      }
 
-      if (apiType === "openai-completions") {
-        if (wantsStream) {
-          return new Response(piStreamToOpenAiCompletionsSse(piStreamHandle), {
-            status: 200,
-            headers: { "content-type": "text/event-stream" },
+          void response.clone().text().then(() => {
+            if (detectionState.signalDetected) {
+              abortCtrl.abort();
+              const nextTier = signalRouter.handleEscalation(messages, currentTier);
+              if (nextTier !== null) {
+                console.log(`[clawmux] [escalation] ${currentTier} → ${nextTier} (signal detected)`);
+                currentTier = nextTier;
+                return;
+              }
+            }
+            signalRouter.touchActivity(messages);
+            if (attempt > 0) {
+              signalRouter.recordSuccessfulEscalation(messages, currentTier as "MEDIUM" | "HEAVY");
+            }
           });
-        }
-        const json = await piStreamToOpenAiCompletionsJson(piStreamHandle);
-        return new Response(JSON.stringify(json), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
-      }
 
-      if (apiType === "openai-responses") {
-        if (wantsStream) {
-          return new Response(piStreamToOpenAiResponsesSse(piStreamHandle), {
-            status: 200,
-            headers: { "content-type": "text/event-stream" },
-          });
+          return response;
         }
-        const json = await piStreamToOpenAiResponsesJson(piStreamHandle);
-        return new Response(JSON.stringify(json), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
-      }
 
-      if (apiType === "google-generative-ai") {
-        if (wantsStream) {
-          return new Response(piStreamToGoogleSse(piStreamHandle), {
-            status: 200,
-            headers: { "content-type": "text/event-stream" },
-          });
+        const fullText = await collectPiStreamText(piStreamHandle, detector, detectionState);
+
+        if (detectionState.signalDetected) {
+          const nextTier = signalRouter.handleEscalation(messages, currentTier);
+          if (nextTier !== null) {
+            console.log(`[clawmux] [escalation] ${currentTier} → ${nextTier} (signal detected in non-streaming)`);
+            currentTier = nextTier;
+            continue;
+          }
         }
-        const json = await piStreamToGoogleJson(piStreamHandle);
-        return new Response(JSON.stringify(json), {
+
+        signalRouter.touchActivity(messages);
+        if (attempt > 0) {
+          signalRouter.recordSuccessfulEscalation(messages, currentTier as "MEDIUM" | "HEAVY");
+        }
+
+        return new Response(JSON.stringify(fullText), {
           status: 200,
           headers: { "content-type": "application/json" },
         });
@@ -427,7 +463,7 @@ export async function handleApiRequest(
   const preview = msgText.replace(/\s+/g, " ").trim().slice(0, 100);
 
   console.log(
-    `[clawmux] [llm] ${decision.tier} → ${decision.model} | conf=${classification.confidence.toFixed(2)}${classification.reasoning ? ` | ${classification.reasoning}` : ""}${preview ? ` | "${preview}${msgText.length > 100 ? "…" : ""}"` : ""}`,
+    `[clawmux] [llm] ${decision.tier} → ${decision.model} | legacy${preview ? ` | "${preview}${msgText.length > 100 ? "…" : ""}"` : ""}`,
   );
 
   if (compressionMiddleware && upstreamResponse.ok) {
@@ -660,6 +696,258 @@ export function createResolvedCompressionMiddleware(
   });
 }
 
+async function yieldPiAiResponse(
+  piStreamHandle: import("@mariozechner/pi-ai").AssistantMessageEventStream,
+  apiType: string,
+  wantsStream: boolean,
+): Promise<Response> {
+  if (apiType === "anthropic-messages") {
+    if (wantsStream) {
+      return new Response(piStreamToAnthropicSse(piStreamHandle), {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      });
+    }
+    const json = await piStreamToAnthropicJson(piStreamHandle);
+    return new Response(JSON.stringify(json), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }
+  if (apiType === "openai-completions") {
+    if (wantsStream) {
+      return new Response(piStreamToOpenAiCompletionsSse(piStreamHandle), {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      });
+    }
+    const json = await piStreamToOpenAiCompletionsJson(piStreamHandle);
+    return new Response(JSON.stringify(json), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }
+  if (apiType === "openai-responses") {
+    if (wantsStream) {
+      return new Response(piStreamToOpenAiResponsesSse(piStreamHandle), {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      });
+    }
+    const json = await piStreamToOpenAiResponsesJson(piStreamHandle);
+    return new Response(JSON.stringify(json), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }
+  if (apiType === "google-generative-ai") {
+    if (wantsStream) {
+      return new Response(piStreamToGoogleSse(piStreamHandle), {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      });
+    }
+    const json = await piStreamToGoogleJson(piStreamHandle);
+    return new Response(JSON.stringify(json), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }
+  throw new Error(`Unsupported pi-ai apiType: ${apiType}`);
+}
+
+function piStreamToAnthropicSseFromGenerator(
+  gen: AsyncGenerator<import("@mariozechner/pi-ai").AssistantMessageEvent>,
+): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  function sseFrame(event: string, data: unknown): Uint8Array {
+    return encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  }
+
+  return new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        let messageStarted = false;
+        const openBlocks = new Map<number, "text" | "thinking" | "tool_use">();
+
+        const ensureMessageStart = (model: string) => {
+          if (messageStarted) return;
+          messageStarted = true;
+          controller.enqueue(
+            sseFrame("message_start", {
+              type: "message_start",
+              message: {
+                id: "msg_" + Date.now().toString(36),
+                type: "message",
+                role: "assistant",
+                content: [],
+                model,
+                stop_reason: null,
+                stop_sequence: null,
+                usage: { input_tokens: 0, output_tokens: 0 },
+              },
+            }),
+          );
+        };
+
+        for await (const event of gen) {
+          if (event.type === "start") {
+            ensureMessageStart(event.partial.model || "");
+          } else if (event.type === "text_start") {
+            ensureMessageStart(event.partial.model || "");
+            openBlocks.set(event.contentIndex, "text");
+            controller.enqueue(
+              sseFrame("content_block_start", {
+                type: "content_block_start",
+                index: event.contentIndex,
+                content_block: { type: "text", text: "" },
+              }),
+            );
+          } else if (event.type === "text_delta") {
+            if (openBlocks.get(event.contentIndex) !== "text") {
+              ensureMessageStart(event.partial.model || "");
+              openBlocks.set(event.contentIndex, "text");
+              controller.enqueue(
+                sseFrame("content_block_start", {
+                  type: "content_block_start",
+                  index: event.contentIndex,
+                  content_block: { type: "text", text: "" },
+                }),
+              );
+            }
+            controller.enqueue(
+              sseFrame("content_block_delta", {
+                type: "content_block_delta",
+                index: event.contentIndex,
+                delta: { type: "text_delta", text: event.delta },
+              }),
+            );
+          } else if (event.type === "text_end") {
+            if (openBlocks.get(event.contentIndex) === "text") {
+              controller.enqueue(
+                sseFrame("content_block_stop", {
+                  type: "content_block_stop",
+                  index: event.contentIndex,
+                }),
+              );
+              openBlocks.delete(event.contentIndex);
+            }
+          } else if (event.type === "done") {
+            for (const [idx] of openBlocks) {
+              controller.enqueue(
+                sseFrame("content_block_stop", {
+                  type: "content_block_stop",
+                  index: idx,
+                }),
+              );
+            }
+            openBlocks.clear();
+            controller.enqueue(
+              sseFrame("message_delta", {
+                type: "message_delta",
+                delta: { stop_reason: "end_turn", stop_sequence: null },
+                usage: { output_tokens: event.message.usage?.output ?? 0 },
+              }),
+            );
+            controller.enqueue(sseFrame("message_stop", { type: "message_stop" }));
+          } else if (event.type === "error") {
+            for (const [idx] of openBlocks) {
+              controller.enqueue(
+                sseFrame("content_block_stop", {
+                  type: "content_block_stop",
+                  index: idx,
+                }),
+              );
+            }
+            openBlocks.clear();
+            controller.enqueue(
+              sseFrame("error", {
+                type: "error",
+                error: {
+                  type: "api_error",
+                  message: event.error?.errorMessage ?? "Unknown error",
+                },
+              }),
+            );
+          }
+        }
+        controller.close();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        controller.enqueue(
+          sseFrame("error", {
+            type: "error",
+            error: { type: "api_error", message: msg },
+          }),
+        );
+        controller.close();
+      }
+    },
+  });
+}
+
+async function collectPiStreamText(
+  piStreamHandle: import("@mariozechner/pi-ai").AssistantMessageEventStream,
+  detector: import("../routing/signal-detector.ts").SignalDetector,
+  state: SignalDetectionState,
+): Promise<Record<string, unknown>> {
+  const msg = await piStreamHandle.result();
+  const fullText = msg.content
+    .filter((c): c is { type: "text"; text: string } => c.type === "text")
+    .map((c) => c.text)
+    .join("");
+
+  const results = detector.feedChunk(fullText);
+  for (const r of results) {
+    if (r.type === "signal_detected") {
+      state.signalDetected = true;
+      break;
+    }
+  }
+  detector.flush();
+
+  const STOP_REASON_MAP: Record<string, string> = {
+    stop: "end_turn",
+    length: "max_tokens",
+    toolUse: "tool_use",
+    error: "end_turn",
+    aborted: "end_turn",
+  };
+
+  const blocks: Array<Record<string, unknown>> = [];
+  for (const c of msg.content) {
+    if (c.type === "text") {
+      blocks.push({ type: "text", text: c.text });
+    } else if (c.type === "thinking") {
+      blocks.push({
+        type: "thinking",
+        thinking: c.thinking,
+        ...(c.thinkingSignature ? { signature: c.thinkingSignature } : {}),
+      });
+    } else if (c.type === "toolCall") {
+      blocks.push({
+        type: "tool_use",
+        id: c.id,
+        name: c.name,
+        input: c.arguments ?? {},
+      });
+    }
+  }
+  return {
+    id: "msg_" + Date.now().toString(36),
+    type: "message",
+    role: "assistant",
+    content: blocks,
+    model: msg.model || "",
+    stop_reason: STOP_REASON_MAP[msg.stopReason] ?? "end_turn",
+    stop_sequence: null,
+    usage: {
+      input_tokens: msg.usage?.input ?? 0,
+      output_tokens: msg.usage?.output ?? 0,
+    },
+  };
+}
+
 interface RouteMapping {
   apiType: string;
   key: string;
@@ -680,9 +968,19 @@ export function setupPipelineRoutes(
   authProfiles: AuthProfile[],
   compressionMiddleware?: CompressionMiddleware,
 ): void {
+  const escalationConfig = config.routing.escalation;
+  const signalRouter = new SignalRouter({
+    escalation: {
+      activeThresholdMs: escalationConfig?.activeThresholdMs ?? 300_000,
+      maxLifetimeMs: escalationConfig?.maxLifetimeMs ?? 7_200_000,
+      fingerprintRootCount: escalationConfig?.fingerprintRootCount ?? 5,
+    },
+    enabled: escalationConfig?.enabled ?? true,
+  });
+
   for (const mapping of ROUTE_MAPPINGS) {
     setRouteHandler(mapping.key, (req, body) =>
-      handleApiRequest(req, body, mapping.apiType, config, openclawConfig, authProfiles, compressionMiddleware),
+      handleApiRequest(req, body, mapping.apiType, config, openclawConfig, authProfiles, compressionMiddleware, signalRouter),
     );
   }
 }

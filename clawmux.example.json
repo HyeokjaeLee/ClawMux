@@ -15,9 +15,15 @@
       "HEAVY": "anthropic/claude-opus-4-20250514",
       "_comment_models": "Model IDs in 'provider/model' format for each routing tier. Do NOT use provider names starting with 'clawmux-' — this causes infinite loops."
     },
-    "scoring": {
-      "confidenceThreshold": 0.7,
-      "_comment_confidenceThreshold": "Classification confidence below this threshold triggers a fallback to MEDIUM tier (range: 0.0–1.0)."
+    "escalation": {
+      "enabled": true,
+      "_comment_enabled": "Set to false to disable signal-based escalation and always route to MEDIUM tier.",
+      "activeThresholdMs": 300000,
+      "_comment_activeThresholdMs": "Idle timeout (ms) before cooling down escalated tier. 300000 = 5 minutes.",
+      "maxLifetimeMs": 7200000,
+      "_comment_maxLifetimeMs": "Maximum lifetime (ms) for escalated tier. 7200000 = 2 hours.",
+      "fingerprintRootCount": 5,
+      "_comment_fingerprintRootCount": "Number of initial messages used to identify a session for escalation memory."
     },
     "contextWindows": {
       "_comment_contextWindows": "Optional per-model context window overrides (in tokens). Keys use 'provider/model' format.",

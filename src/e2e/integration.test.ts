@@ -237,7 +237,7 @@ describe("Anthropic routing", () => {
     expect(lastUpstreamRequest).not.toBeNull();
 
     const sentModel = lastUpstreamRequest!.body?.model as string;
-    expect(sentModel).toBe("claude-opus-4-20250514");
+    expect(sentModel).toBe("claude-3-5-haiku-20241022");
   });
 
   test("upstream response is passed through transparently", async () => {
@@ -354,7 +354,7 @@ describe("OpenAI routing", () => {
     expect(lastUpstreamRequest).not.toBeNull();
 
     const sentModel = lastUpstreamRequest!.body?.model as string;
-    expect(sentModel).toBe("claude-opus-4-20250514");
+    expect(sentModel).toBe("claude-3-5-haiku-20241022");
   });
 });
 

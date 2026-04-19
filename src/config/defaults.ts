@@ -1,4 +1,11 @@
-import type { ClawMuxConfig } from "./types.ts";
+import type { ClawMuxConfig, EscalationConfig } from "./types.ts";
+
+export const ESCALATION_DEFAULTS: Required<EscalationConfig> = {
+  activeThresholdMs: 300_000,
+  maxLifetimeMs: 7_200_000,
+  fingerprintRootCount: 5,
+  enabled: true,
+};
 
 export const DEFAULT_CONFIG: Required<ClawMuxConfig> = {
   compression: {
@@ -13,6 +20,7 @@ export const DEFAULT_CONFIG: Required<ClawMuxConfig> = {
       HEAVY: "",
     },
     contextWindows: {},
+    escalation: ESCALATION_DEFAULTS,
   },
   server: {
     port: 3456,
@@ -36,6 +44,14 @@ export function applyDefaults(partial: ClawMuxConfig): Required<ClawMuxConfig> {
         HEAVY: partial.routing.models.HEAVY ?? defaults.routing.models.HEAVY,
       },
       contextWindows: { ...defaults.routing.contextWindows, ...partial.routing.contextWindows },
+      escalation: {
+        activeThresholdMs: partial.routing.escalation?.activeThresholdMs ?? ESCALATION_DEFAULTS.activeThresholdMs,
+        maxLifetimeMs: partial.routing.escalation?.maxLifetimeMs ?? ESCALATION_DEFAULTS.maxLifetimeMs,
+        fingerprintRootCount: partial.routing.escalation?.fingerprintRootCount ?? ESCALATION_DEFAULTS.fingerprintRootCount,
+        enabled: partial.routing.escalation?.enabled !== undefined
+          ? partial.routing.escalation.enabled
+          : ESCALATION_DEFAULTS.enabled,
+      },
     },
     server: {
       port: partial.server?.port ?? defaults.server.port,

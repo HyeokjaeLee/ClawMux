@@ -311,7 +311,7 @@ describe("Cross-provider routing", () => {
     expect(text).not.toContain('"object":"chat.completion.chunk"');
   });
 
-  test("Anthropic→Anthropic (same provider): response piped transparently", async () => {
+  test("LIGHT tier routes to OpenAI (cross-provider from Anthropic input)", async () => {
     resetState();
 
     const res = await fetch(proxyUrl("/v1/messages"), {
@@ -327,19 +327,17 @@ describe("Cross-provider routing", () => {
 
     expect(res.status).toBe(200);
 
-    expect(lastAnthropicRequest).not.toBeNull();
-    expect(lastOpenAIRequest).toBeNull();
+    expect(lastOpenAIRequest).not.toBeNull();
 
-    expect(lastAnthropicRequest!.path).toBe("/v1/messages");
-    expect(lastAnthropicRequest!.headers["x-api-key"]).toBe("test-key");
+    expect(lastOpenAIRequest!.path).toBe("/v1/chat/completions");
+    expect(lastOpenAIRequest!.headers["authorization"]).toContain("Bearer");
 
     const body = (await res.json()) as Record<string, unknown>;
-    expect(body.id).toBe("msg_cross_test");
     expect(body.type).toBe("message");
-    expect(body.model).toBe("claude-sonnet-4-20250514");
+    expect(body.role).toBe("assistant");
   });
 
-  test("OpenAI→Anthropic: response translated to OpenAI format", async () => {
+  test("OpenAI input routes to LIGHT OpenAI provider", async () => {
     resetState();
 
     const res = await fetch(proxyUrl("/v1/chat/completions"), {
@@ -354,11 +352,9 @@ describe("Cross-provider routing", () => {
 
     expect(res.status).toBe(200);
 
-    expect(lastAnthropicRequest).not.toBeNull();
-    expect(lastOpenAIRequest).toBeNull();
+    expect(lastOpenAIRequest).not.toBeNull();
 
-    expect(lastAnthropicRequest!.path).toBe("/v1/messages");
-    expect(lastAnthropicRequest!.headers["x-api-key"]).toBe("test-key");
+    expect(lastOpenAIRequest!.path).toBe("/v1/chat/completions");
 
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.object).toBe("chat.completion");
@@ -372,7 +368,7 @@ describe("Cross-provider routing", () => {
     expect(typeof message.content).toBe("string");
   });
 
-  test("Model field verification: upstream receives correct target model name", async () => {
+  test("Model field verification: upstream receives LIGHT model name", async () => {
     resetState();
 
     await fetch(proxyUrl("/v1/messages"), {
@@ -389,39 +385,5 @@ describe("Cross-provider routing", () => {
     expect(lastOpenAIRequest).not.toBeNull();
     const sentModel = lastOpenAIRequest!.body?.model as string;
     expect(sentModel).toBe("gpt-4o-mini");
-
-    resetState();
-
-    await fetch(proxyUrl("/v1/messages"), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        model: "claude-opus-4-20250514",
-        messages: [{ role: "user", content: MEDIUM_CONTENT }],
-        max_tokens: 4096,
-        stream: false,
-      }),
-    });
-
-    expect(lastAnthropicRequest).not.toBeNull();
-    const sentMediumModel = lastAnthropicRequest!.body?.model as string;
-    expect(sentMediumModel).toBe("claude-sonnet-4-20250514");
-
-    resetState();
-
-    await fetch(proxyUrl("/v1/messages"), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        model: "claude-opus-4-20250514",
-        messages: [{ role: "user", content: COMPLEX_CONTENT }],
-        max_tokens: 8192,
-        stream: false,
-      }),
-    });
-
-    expect(lastOpenAIRequest).not.toBeNull();
-    const sentHeavyModel = lastOpenAIRequest!.body?.model as string;
-    expect(sentHeavyModel).toBe("gpt-5.4");
   });
 });

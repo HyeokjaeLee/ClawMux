@@ -106,6 +106,40 @@ export function validateConfig(raw: unknown): ValidationResultUnion {
     }
   }
 
+  if (routing.escalation !== undefined) {
+    if (!isObject(routing.escalation)) {
+      errors.push("routing.escalation: must be an object");
+    } else {
+      const esc = routing.escalation;
+      if (esc.activeThresholdMs !== undefined) {
+        if (typeof esc.activeThresholdMs !== "number") {
+          errors.push(`routing.escalation.activeThresholdMs: must be a number, got ${typeof esc.activeThresholdMs}`);
+        } else if (esc.activeThresholdMs <= 0) {
+          errors.push(`routing.escalation.activeThresholdMs: must be a positive number, got ${esc.activeThresholdMs}`);
+        }
+      }
+      if (esc.maxLifetimeMs !== undefined) {
+        if (typeof esc.maxLifetimeMs !== "number") {
+          errors.push(`routing.escalation.maxLifetimeMs: must be a number, got ${typeof esc.maxLifetimeMs}`);
+        } else if (esc.maxLifetimeMs <= 0) {
+          errors.push(`routing.escalation.maxLifetimeMs: must be a positive number, got ${esc.maxLifetimeMs}`);
+        }
+      }
+      if (esc.fingerprintRootCount !== undefined) {
+        if (typeof esc.fingerprintRootCount !== "number") {
+          errors.push(`routing.escalation.fingerprintRootCount: must be a number, got ${typeof esc.fingerprintRootCount}`);
+        } else if (!Number.isInteger(esc.fingerprintRootCount) || esc.fingerprintRootCount < 1) {
+          errors.push(`routing.escalation.fingerprintRootCount: must be an integer >= 1, got ${esc.fingerprintRootCount}`);
+        }
+      }
+      if (esc.enabled !== undefined) {
+        if (typeof esc.enabled !== "boolean") {
+          errors.push(`routing.escalation.enabled: must be a boolean, got ${typeof esc.enabled}`);
+        }
+      }
+    }
+  }
+
   const server = obj.server !== undefined && isObject(obj.server) ? obj.server : null;
   if (server !== null && server.port !== undefined) {
     checkOptionalNumberRange(errors, "server.port", server.port, 1024, 65535);

@@ -3,6 +3,7 @@ import { describe, expect, it, beforeAll, afterAll } from "bun:test";
 import type { ClawMuxConfig } from "../config/types.ts";
 import type { OpenClawConfig, AuthProfile } from "../openclaw/types.ts";
 import { handleApiRequest } from "./pipeline.ts";
+import { SignalRouter } from "../routing/signal-router.ts";
 
 let mockServer: ReturnType<typeof Bun.serve>;
 let mockPort: number;
@@ -110,6 +111,11 @@ function makeRequest(path: string, port: number): Request {
   return new Request(`http://localhost:${port}${path}`, { method: "POST" });
 }
 
+const testRouter = new SignalRouter({
+  escalation: { activeThresholdMs: 300_000, maxLifetimeMs: 7_200_000, fingerprintRootCount: 5 },
+  enabled: true,
+});
+
 describe("handleApiRequest", () => {
   it("routes an Anthropic request to the correct model", async () => {
     const config = makeConfig();
@@ -132,6 +138,8 @@ describe("handleApiRequest", () => {
       config,
       openclawConfig,
       authProfiles,
+      undefined,
+      testRouter,
     );
 
     expect(response.status).toBe(200);
@@ -166,6 +174,8 @@ describe("handleApiRequest", () => {
       config,
       openclawConfig,
       authProfiles,
+      undefined,
+      testRouter,
     );
 
     expect(response.status).toBe(200);
@@ -200,6 +210,8 @@ describe("handleApiRequest", () => {
       config,
       openclawConfig,
       authProfiles,
+      undefined,
+      testRouter,
     );
 
     expect(response.status).toBe(200);
@@ -246,10 +258,12 @@ describe("handleApiRequest", () => {
       config,
       openclawConfig,
       authProfiles,
+      undefined,
+      testRouter,
     );
 
     expect(response.status).toBe(200);
-    expect(lastReceivedBody?.model).toBe("claude-opus-4-20250514");
+    expect(lastReceivedBody?.model).toBe("claude-3-5-haiku-20241022");
   });
 
   it("streams SSE response transparently", async () => {
@@ -272,6 +286,8 @@ describe("handleApiRequest", () => {
       config,
       openclawConfig,
       authProfiles,
+      undefined,
+      testRouter,
     );
 
     expect(response.status).toBe(200);
@@ -317,6 +333,8 @@ describe("handleApiRequest", () => {
       config,
       openclawConfig,
       [],
+      undefined,
+      testRouter,
     );
 
     expect(response.status).toBe(502);
@@ -336,6 +354,8 @@ describe("handleApiRequest", () => {
       config,
       openclawConfig,
       authProfiles,
+      undefined,
+      testRouter,
     );
 
     expect(response.status).toBe(500);
@@ -364,6 +384,8 @@ describe("handleApiRequest", () => {
       config,
       openclawConfig,
       authProfiles,
+      undefined,
+      testRouter,
     );
 
     expect(response.status).toBe(429);

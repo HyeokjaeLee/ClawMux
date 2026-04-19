@@ -18,15 +18,6 @@ export type RoutingDecision = {
   overrideReason?: string;
 };
 
-export type ClassificationTier = "LIGHT" | "MEDIUM" | "HEAVY";
-
-export type ClassificationResult = {
-  tier: ClassificationTier;
-  confidence: number;
-  reasoning?: string;
-  error?: string;
-};
-
 /** A single message in the Anthropic messages format. */
 export type Message = {
   role: string;

@@ -22,12 +22,11 @@
     "start:node": "node --import tsx src/index.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "build": "bun build src/cli.ts --outfile dist/cli.cjs --target node --format cjs --external @huggingface/transformers && bun build src/index.ts --outfile dist/index.cjs --target node --format cjs --external @huggingface/transformers && node -e \"const fs=require('fs');const v=require('./package.json').version;for(const f of['dist/cli.cjs','dist/index.cjs']){fs.writeFileSync(f,fs.readFileSync(f,'utf-8').replace('__CLAWMUX_VERSION__',v))}\"",
+    "build": "bun build src/cli.ts --outfile dist/cli.cjs --target node --format cjs && bun build src/index.ts --outfile dist/index.cjs --target node --format cjs && node -e \"const fs=require('fs');const v=require('./package.json').version;for(const f of['dist/cli.cjs','dist/index.cjs']){fs.writeFileSync(f,fs.readFileSync(f,'utf-8').replace('__CLAWMUX_VERSION__',v))}\"",
     "build:check": "node dist/cli.cjs version",
     "prepublishOnly": "npm run typecheck && npm run build && npm run build:check"
   },
   "dependencies": {
-    "@huggingface/transformers": "^3",
     "@mariozechner/pi-ai": "^0.67.6"
   },
   "devDependencies": {

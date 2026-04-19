@@ -1,3 +1,10 @@
+export interface EscalationConfig {
+  activeThresholdMs?: number;
+  maxLifetimeMs?: number;
+  fingerprintRootCount?: number;
+  enabled?: boolean;
+}
+
 export interface ClawMuxConfig {
   compression: {
     /** Range: 0.1–0.95 */
@@ -14,6 +21,7 @@ export interface ClawMuxConfig {
     };
     /** Per-model context window overrides, e.g. { "zai/glm-5": 204800 } */
     contextWindows?: Record<string, number>;
+    escalation?: EscalationConfig;
   };
   server?: {
     /** Range: 1024–65535 */

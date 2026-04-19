@@ -5,7 +5,7 @@ Smart model routing + context compression proxy for OpenClaw.
 
 ## Features
 
-- 🧠 **Smart Routing**: Embedding-based semantic classification → LIGHT/MEDIUM/HEAVY tier → automatic model selection
+- 🧠 **Smart Routing**: Signal-based escalation → LIGHT tries first, auto-escalates to MEDIUM/HEAVY when needed
 - 📦 **Context Compression**: Preemptive background summarization at configurable threshold (default 75%)
 - 🔌 **All Providers**: Supports all OpenClaw providers via 6 API format adapters
 - ⚡ **Zero Config Auth**: Uses OpenClaw's existing provider credentials — no separate API keys
@@ -88,17 +88,18 @@ openclaw provider clawmux
 ```
 OpenClaw → ClawMux Proxy (localhost:3456) → Upstream Provider(s)
               │
-              ├── 1. Classify complexity (embedding model, ~4ms first run, <1ms cached)
-              ├── 2. Select tier → LIGHT/MEDIUM/HEAVY
+              ├── 1. Start at LIGHT tier (or escalated tier from memory)
+              ├── 2. Inject escalation instruction if LIGHT/MEDIUM
               ├── 3. Compress context if threshold exceeded
-              ├── 4. Translate request format if cross-provider
-              ├── 5. Forward to upstream with correct model
-              └── 6. Translate response back to original format
+              ├── 4. Forward to upstream with correct model
+              ├── 5. Detect escalation signal in response
+              ├── 6. If signal found → retry at next tier (max 3 attempts)
+              └── 7. Translate response back to original format
 ```
 
-**Routing tiers** map to model IDs you configure. A local embedding model (`Xenova/multilingual-e5-small`) classifies the semantic complexity of each request using nearest-centroid classification (~8ms p50), supporting both Korean and English. Short queries are detected by a lightweight heuristic and routed to LIGHT tier directly. No external API calls are needed for classification.
+**Signal-based escalation** routes all requests to the LIGHT model first. If the LIGHT model cannot handle the request, it emits `===CLAWMUX_ESCALATE===` and ClawMux automatically retries at the next tier (LIGHT→MEDIUM→HEAVY). Sessions that previously escalated are remembered for up to 2 hours (5 min idle timeout), so follow-up requests go directly to the appropriate tier.
 
-**Low confidence fallback**: When the classifier's confidence is low, the request is routed to MEDIUM tier. This prevents unreliable classifications from sending requests to an inappropriate tier — MEDIUM provides a safe cost/quality balance.
+**Kill switch**: Set `routing.escalation.enabled` to `false` in your config to disable escalation and always use the MEDIUM model. This is useful for debugging or when you want predictable routing.
 
 **Context compression** runs in the background after each response. When the conversation approaches the configured threshold, ClawMux summarizes older messages before the next request goes out. This keeps costs down on long conversations without interrupting the flow.
 
