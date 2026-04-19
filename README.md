@@ -35,14 +35,14 @@ Adjust as needed:
 {
   "compression": {
     "threshold": 0.75,       // trigger compression at 75% of context window
-    "model": "anthropic/claude-3-5-haiku-20241022",  // model used for summarization (provider/model format)
+    "model": "zai/glm-5-turbo",  // model used for summarization (provider/model format)
     "targetRatio": 0.6       // compress to 60% of original token count
   },
   "routing": {
     "models": {
-      "LIGHT": "anthropic/claude-3-5-haiku-20241022",
-      "MEDIUM": "anthropic/claude-sonnet-4-20250514",
-      "HEAVY": "anthropic/claude-opus-4-20250514"
+      "LIGHT": "zai/glm-5-turbo",            // fast & cheap first attempt (openai-completions)
+      "MEDIUM": "google/gemini-2.5-flash",   // balanced middle tier (google-generative-ai)
+      "HEAVY": "anthropic/claude-opus-4-5"   // most capable terminal tier (anthropic-messages)
       // Model IDs use 'provider/model' format. Do NOT use "clawmux" as provider — causes infinite loops
     }
   },
