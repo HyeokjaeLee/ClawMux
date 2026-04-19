@@ -70,15 +70,29 @@ function detectInstallMethod(): "bun" | "npm" | "unknown" {
   }
 }
 
+function resolveBinPath(command: string): string {
+  try {
+    return execSync(`which ${command}`, { encoding: "utf-8" }).trim();
+  } catch {
+    return command;
+  }
+}
+
 function resolveClawmuxBin(): string {
   try {
     const bin = execSync("which clawmux", { encoding: "utf-8" }).trim();
     if (bin.includes("/tmp/") || bin.includes("bunx-") || bin.includes("npx-")) {
-      return detectInstallMethod() === "bun" ? "bunx clawmux" : "npx clawmux";
+      const runtime = detectInstallMethod();
+      return runtime === "bun"
+        ? `${resolveBinPath("bunx")} clawmux`
+        : `${resolveBinPath("npx")} clawmux`;
     }
     return bin;
   } catch {
-    return detectInstallMethod() === "bun" ? "bunx clawmux" : "npx clawmux";
+    const runtime = detectInstallMethod();
+    return runtime === "bun"
+      ? `${resolveBinPath("bunx")} clawmux`
+      : `${resolveBinPath("npx")} clawmux`;
   }
 }
 
@@ -94,6 +108,16 @@ const LAUNCHD_DIR = join(getHomeDir(), "Library", "LaunchAgents");
 const LAUNCHD_PATH = join(LAUNCHD_DIR, `com.${SERVICE_NAME}.plist`);
 
 function buildSystemdUnit(bin: string, port: string, workDir: string): string {
+  // Resolve PATH for systemd — it doesn't inherit the user's shell PATH
+  const userPaths = [
+    join(getHomeDir(), ".bun", "bin"),
+    join(getHomeDir(), ".local", "bin"),
+    join(getHomeDir(), ".npm-global", "bin"),
+    "/usr/local/bin",
+    "/usr/bin",
+    "/bin",
+  ].join(":");
+
   return `[Unit]
 Description=ClawMux - Smart model routing proxy
 After=network.target
@@ -105,6 +129,7 @@ WorkingDirectory=${workDir}
 Restart=on-failure
 RestartSec=5
 Environment=CLAWMUX_PORT=${port}
+Environment=PATH=${userPaths}
 
 [Install]
 WantedBy=default.target
