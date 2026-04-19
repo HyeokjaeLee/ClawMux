@@ -47,6 +47,14 @@ function resolveProviderApi(
   return PROVIDER_API_FALLBACK;
 }
 
+export function resolveProviderBaseUrl(apiType: string, port: string): string {
+  const origin = `http://localhost:${port}`;
+  if (apiType === "openai-completions" || apiType === "openai-responses") {
+    return `${origin}/v1`;
+  }
+  return origin;
+}
+
 async function fileExistsLocal(path: string): Promise<boolean> {
   try {
     await access(path);
@@ -365,7 +373,8 @@ async function update(): Promise<void> {
 async function fixAgentModelsJson(
   homeDir: string,
   providerKey: string,
-  correctBaseUrl: string,
+  servicePort: string,
+  fallbackApiType: string,
 ): Promise<void> {
   const agentsDir = join(homeDir, ".openclaw", "agents");
   let agentDirs: string[];
@@ -387,12 +396,16 @@ async function fixAgentModelsJson(
       if (!agentProviders?.[providerKey]) continue;
 
       const entry = agentProviders[providerKey];
+      const agentApiType = typeof entry["api"] === "string" && (entry["api"] as string).length > 0
+        ? (entry["api"] as string)
+        : fallbackApiType;
+      const correctBaseUrl = resolveProviderBaseUrl(agentApiType, servicePort);
       const current = String(entry["baseUrl"] ?? "");
       if (current === correctBaseUrl) continue;
 
       entry["baseUrl"] = correctBaseUrl;
       await writeFile(modelsPath, JSON.stringify(data, null, 2) + "\n");
-      console.log(`  fixed  agent ${agentId} ${providerKey} baseUrl: ${current} → ${correctBaseUrl}`);
+      console.log(`  fixed  agent ${agentId} ${providerKey} baseUrl: ${current} → ${correctBaseUrl} (api=${agentApiType})`);
     } catch {
       void 0;
     }
@@ -464,32 +477,49 @@ async function init(): Promise<void> {
     console.log(`[info] clawmux.json not readable, using default api: ${providerApi}`);
   }
 
+  const servicePort = process.env.CLAWMUX_PORT ?? "3456";
+  const providerBaseUrl = resolveProviderBaseUrl(providerApi, servicePort);
+
   if (providers[PROVIDER_KEY]) {
     const existing = providers[PROVIDER_KEY] as Record<string, unknown>;
-    if (existing["api"] !== providerApi) {
+    const existingApi = existing["api"];
+    const existingBaseUrl = existing["baseUrl"];
+    let dirty = false;
+    if (existingApi !== providerApi) {
       existing["api"] = providerApi;
+      dirty = true;
+    }
+    if (existingBaseUrl !== providerBaseUrl) {
+      existing["baseUrl"] = providerBaseUrl;
+      dirty = true;
+    }
+    if (dirty) {
       await writeFile(openclawConfigPath, JSON.stringify(config, null, 2) + "\n");
-      console.log(`  updated ${PROVIDER_KEY} provider api → ${providerApi}`);
+      console.log(
+        `  updated ${PROVIDER_KEY} provider (api=${providerApi}, baseUrl=${providerBaseUrl})`,
+      );
     } else {
-      console.log(`  skip  ${PROVIDER_KEY} (already exists, api=${providerApi})`);
+      console.log(
+        `  skip  ${PROVIDER_KEY} (already exists, api=${providerApi}, baseUrl=${providerBaseUrl})`,
+      );
     }
   } else {
     providers[PROVIDER_KEY] = {
-      baseUrl: "http://localhost:3456",
+      baseUrl: providerBaseUrl,
       api: providerApi,
       models: [{ id: "auto", name: "ClawMux Auto Router" }],
     };
     await writeFile(openclawConfigPath, JSON.stringify(config, null, 2) + "\n");
-    console.log(`  added ${PROVIDER_KEY} provider to openclaw.json (api=${providerApi})`);
+    console.log(
+      `  added ${PROVIDER_KEY} provider to openclaw.json (api=${providerApi}, baseUrl=${providerBaseUrl})`,
+    );
   }
 
-  await fixAgentModelsJson(homeDir, PROVIDER_KEY, "http://localhost:3456");
-
-  const port = process.env.CLAWMUX_PORT ?? "3456";
+  await fixAgentModelsJson(homeDir, PROVIDER_KEY, servicePort, providerApi);
 
   if (!noService) {
     console.log("");
-    await installService(port, process.cwd());
+    await installService(servicePort, process.cwd());
   }
 
   console.log("\n[info] ClawMux setup complete!");

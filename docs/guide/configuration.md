@@ -81,9 +81,18 @@ After writing `clawmux.json`, run `clawmux init` again to update the OpenClaw pr
 clawmux init
 ```
 
-This re-reads the MEDIUM model from `~/.openclaw/clawmux.json`, looks up its provider's API format in `openclaw.json`, and updates the `clawmux` provider's `api` field accordingly. This ensures OpenClaw sends requests in the correct format for the MEDIUM tier — minimizing unnecessary format translation.
+This re-reads the MEDIUM model from `~/.openclaw/clawmux.json`, looks up its provider's API format in `openclaw.json`, and updates two fields on the `clawmux` provider in `openclaw.json`:
 
-**Always re-run `clawmux init` whenever you change the MEDIUM model in `~/.openclaw/clawmux.json`.**
+1. `api` — matches the MEDIUM model's API format so OpenClaw sends requests in the right shape (minimizing format translation).
+2. `baseUrl` — the proxy origin plus the path prefix required by the API format:
+   - `openai-completions`, `openai-responses` → `http://localhost:<port>/v1` (the OpenAI SDK appends `/chat/completions` or `/responses` directly to this)
+   - All other API types → `http://localhost:<port>` (ClawMux's adapter builds the full path like `/v1/messages`, `/v1beta/models/...`, `/api/chat`)
+
+`clawmux init` also walks every agent-level `~/.openclaw/agents/*/agent/models.json`. For each file that already has a `clawmux` entry, it rewrites `baseUrl` according to that entry's own `api` field — so agents pinned to different API formats each get the correct URL without being forced onto the MEDIUM format.
+
+**Always re-run `clawmux init` whenever you change the MEDIUM model in `~/.openclaw/clawmux.json`** — this keeps `openclaw.json` and all agent-level overrides in sync with the new API format.
+
+> ⚠️ **Do not hand-edit `baseUrl` in `openclaw.json` or agent-level `models.json`.** The correct value depends on the `api` field and must match what `clawmux init` produces. Past regressions (double `/v1/v1/chat/completions`, or the opposite missing-prefix 404) were caused by manually written `baseUrl` values. Always go through `clawmux init`.
 
 ### Step 5: Verify
 
@@ -108,6 +117,20 @@ If the test passes, tell the user:
 openclaw provider clawmux
 openclaw chat
 ```
+
+### Step 6: Switch Agents to `clawmux/auto` (only if the user wants it)
+
+Ask the user which agents they want to route through ClawMux. Switch **only the agents they confirm**. Use the OpenClaw CLI — do **not** hand-edit `~/.openclaw/openclaw.json` or `~/.openclaw/agents/<id>/agent/models.json`:
+
+```bash
+# Inspect current default model for every agent
+openclaw config get agents.list
+
+# Switch a single agent's primary model
+openclaw config set agents.list[<index>].model.primary clawmux/auto
+```
+
+`openclaw config set` updates `openclaw.json`, re-renders the agent-level `models.json` cache, and the running OpenClaw gateway picks up the change via hot-reload — no restart required. If you touch the underlying JSON files directly you risk drift between `openclaw.json` and the agent cache, which has historically produced hard-to-debug routing bugs.
 
 ## Full Config Reference
 

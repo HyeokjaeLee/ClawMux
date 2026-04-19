@@ -83,6 +83,8 @@ ClawMux registers as a single provider `clawmux` in OpenClaw with model `auto`. 
 openclaw provider clawmux
 ```
 
+`clawmux init` manages the `clawmux` provider entry in `openclaw.json` (and the per-agent `models.json` caches) for you. It sets `api` to match your MEDIUM tier's API format and computes the correct `baseUrl` from that — `http://localhost:<port>/v1` for OpenAI-style APIs (where the upstream SDK appends `/chat/completions` or `/responses`) and `http://localhost:<port>` for everything else. Do not hand-edit these fields; rerun `clawmux init` after changing the MEDIUM model in `~/.openclaw/clawmux.json`.
+
 ## How It Works
 
 ```

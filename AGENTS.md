@@ -52,3 +52,9 @@
 - Kill switch: set `routing.escalation.enabled` to `false` in `~/.openclaw/clawmux.json` to bypass signal routing entirely and always use MEDIUM tier.
 - Config touch points: `src/routing/signal-router.ts`, `src/routing/signal-detector.ts`, `src/routing/escalation-memory.ts`, `src/routing/instruction-injector.ts`.
 - Upstream retry: `fetchWithRetry()` in `src/proxy/pipeline.ts` retries 429/500/502/503 and network errors with exponential backoff (respects `Retry-After`, max 3 retries).
+
+## Provider Registration (`clawmux init`)
+- `clawmux init` writes the `clawmux` provider entry in `~/.openclaw/openclaw.json` and syncs per-agent `~/.openclaw/agents/*/agent/models.json` caches.
+- `baseUrl` must include the path prefix the upstream SDK expects: `http://localhost:<port>/v1` for `openai-completions` and `openai-responses` (the OpenAI SDK auto-appends `/chat/completions` / `/responses`); `http://localhost:<port>` for every other API type (ClawMux's own adapter builds the full path, e.g. `/v1/messages`, `/v1beta/models/...`, `/api/chat`).
+- `resolveProviderBaseUrl(apiType, port)` in `src/cli.ts` is the single source of truth for this mapping. Any other code path that writes `baseUrl` for the `clawmux` provider must go through it.
+- Do not hand-edit `baseUrl` in `openclaw.json` or agent-level `models.json`. Always rerun `clawmux init` after changing the MEDIUM model so the whole tree stays consistent. Historical bugs (`/v1/v1/chat/completions` double prefix and the opposite missing-`/v1` 404) came from manually edited values.

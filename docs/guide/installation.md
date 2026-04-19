@@ -113,7 +113,17 @@ Ask the user:
 
 > ClawMux is now running. Would you like to switch your agents and active sessions to use `clawmux/auto` as the default model?
 
-If yes, use the openclaw CLI to update the model for each agent and session the user wants to switch. Apply only what the user confirms — do not change agents the user wants to keep on their current model.
+If yes, use the OpenClaw CLI to update the model for each agent and session the user wants to switch. Apply only what the user confirms — do not change agents the user wants to keep on their current model.
+
+```bash
+# Show agents and their current primary model
+openclaw config get agents.list
+
+# Switch one agent (repeat per agent the user approves)
+openclaw config set agents.list[<index>].model.primary clawmux/auto
+```
+
+**Do not hand-edit `~/.openclaw/openclaw.json` or `~/.openclaw/agents/<id>/agent/models.json`** — always go through `openclaw config set` so the gateway's hot-reload sees a consistent change.
 
 Setup is complete.
 
