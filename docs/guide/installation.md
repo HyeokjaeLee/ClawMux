@@ -32,8 +32,8 @@ If OpenClaw isn't installed, help the user install it first.
 
 Based on the runtime detected in Step 1:
 
-- If Bun is available: `bunx clawmux init`
-- Otherwise: `npx clawmux init`
+- If Bun is available: `bunx clawmux@latest init`
+- Otherwise: `npx clawmux@latest init`
 
 This will:
 1. Detect OpenClaw config at `~/.openclaw/openclaw.json`
@@ -62,7 +62,7 @@ Common causes and fixes:
 | Log message | Cause | Fix |
 |---|---|---|
 | `address already in use` | Port 3456 taken | Kill the conflicting process or change port |
-| `Cannot find module` | Bad install | Re-run `bunx clawmux init` |
+| `Cannot find module` | Bad install | Re-run `bunx clawmux@latest init` |
 | `SIGTERM` with no error | Service was stopped externally | Run `systemctl --user start clawmux` |
 
 **Do not run `systemctl restart` or `start` more than once without reading the logs first.** Repeated restarts without diagnosing the root cause can leave the service in a stopped state that looks like a failure but isn't.
@@ -133,7 +133,7 @@ Setup is complete.
 
 | | Node.js | Bun |
 |---|---|---|
-| Install | `npx clawmux init` | `bunx clawmux init` |
+| Install | `npx clawmux@latest init` | `bunx clawmux@latest init` |
 | Startup | ~3s (model load) | ~3s (model load) |
 | Classification | ~8ms p50 | ~8ms p50 |
 | HTTP Server | `node:http` + Web API adapter | `Bun.serve()` native |
@@ -167,6 +167,12 @@ clawmux update
 ```
 
 This will download the latest version and restart the system service. Config (`~/.openclaw/clawmux.json`) is preserved.
+
+> **Note:** Both `bunx` and `npx` cache packages locally. If the service was installed with `bunx clawmux` (without `@latest`), it may use a stale cached version even after running `clawmux update`. To ensure the latest version is always used:
+>
+> 1. Check the service file: `cat ~/.config/systemd/user/clawmux.service | grep ExecStart`
+> 2. If it shows `bunx clawmux` without `@latest`, update it to `bunx clawmux@latest` (or `npx clawmux@latest`)
+> 3. Run `systemctl --user daemon-reload && systemctl --user restart clawmux`
 
 Verify after update:
 

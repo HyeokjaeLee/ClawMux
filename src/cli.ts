@@ -84,15 +84,15 @@ function resolveClawmuxBin(): string {
     if (bin.includes("/tmp/") || bin.includes("bunx-") || bin.includes("npx-")) {
       const runtime = detectInstallMethod();
       return runtime === "bun"
-        ? `${resolveBinPath("bunx")} clawmux`
-        : `${resolveBinPath("npx")} clawmux`;
+        ? `${resolveBinPath("bunx")} clawmux@latest`
+        : `${resolveBinPath("npx")} clawmux@latest`;
     }
     return bin;
   } catch {
     const runtime = detectInstallMethod();
     return runtime === "bun"
-      ? `${resolveBinPath("bunx")} clawmux`
-      : `${resolveBinPath("npx")} clawmux`;
+      ? `${resolveBinPath("bunx")} clawmux@latest`
+      : `${resolveBinPath("npx")} clawmux@latest`;
   }
 }
 
